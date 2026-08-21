@@ -1,0 +1,6 @@
+{
+  "name": "pY Channel - AI Movie Recap Studio",
+  "description": "4-step AI Movie Recap Studio UI & Workflow for pY Channel with Dark Liquid Glassmorphism, AssemblyAI transcription, Gemini Myanmar translation, 40 Burmese voice avatars, and video stretch sync engine.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
