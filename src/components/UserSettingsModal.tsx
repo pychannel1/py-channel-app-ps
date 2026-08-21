@@ -103,10 +103,10 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   }, [geminiApiKey]);
 
   // ----------------------------------------------------
-  // VIP Subscription Tab State (4-Tier Structure)
+  // VIP Subscription Tab State (2-Tier Structure: Free vs Unlimited VIP 10,000 MMK)
   // ----------------------------------------------------
   const [selectedPlanId, setSelectedPlanId] = useState<PlanTierId>(
-    vipInfo.planId && vipInfo.planId !== 'free' ? vipInfo.planId : 'standard'
+    vipInfo.planId && vipInfo.planId !== 'free' ? 'vip_unlimited' : 'vip_unlimited'
   );
   const [slipFile, setSlipFile] = useState<File | null>(null);
   const [slipPreviewUrl, setSlipPreviewUrl] = useState<string | null>(vipInfo.slipImage || null);
@@ -461,17 +461,17 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             </div>
 
             {/* ------------------------------------------------------------------------- */}
-            {/* 4-TIER PRICING CARDS LAYOUT */}
+            {/* 2-TIER PRICING CARDS LAYOUT (Free vs VIP Unlimited 10,000 MMK) */}
             {/* ------------------------------------------------------------------------- */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <h4 className="text-sm font-bold text-slate-100 flex items-center gap-2 font-burmese">
                     <Star className="w-4 h-4 text-amber-400" />
-                    ရွေးချယ်နိုင်သော အစီအစဉ် ၄ မျိုး (4-Tier Plans)
+                    ရွေးချယ်နိုင်သော အစီအစဉ် ၂ မျိုး (Pricing Plans)
                   </h4>
                   <p className="text-xs text-slate-400 font-burmese">
-                    မိမိနှင့် ကိုက်ညီသော အစီအစဉ်အား နှိပ်၍ ရွေးချယ်ပါ
+                    အခမဲ့ စမ်းသပ်ခြင်း သို့မဟုတ် VIP အကန့်အသတ်မရှိ အစီအစဉ်ကို ရွေးချယ်ပါ
                   </p>
                 </div>
                 <span className="text-[11px] text-amber-400 font-mono font-bold bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-full">
@@ -479,39 +479,27 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {PRICING_PLANS.map((plan) => {
                   const isSelected = selectedPlanId === plan.id;
-                  const isTier0 = plan.tierNumber === 0;
-                  const isTier1 = plan.tierNumber === 1;
-                  const isTier2 = plan.tierNumber === 2;
-                  const isTier3 = plan.tierNumber === 3;
+                  const isFree = plan.id === 'free';
+                  const isVip = plan.id === 'vip_unlimited';
 
                   return (
                     <div
                       key={plan.id}
                       onClick={() => setSelectedPlanId(plan.id)}
-                      className={`p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
+                      className={`p-5 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
                         isSelected
-                          ? isTier3
-                            ? 'bg-gradient-to-b from-purple-950/60 via-slate-900 to-slate-900 border-purple-500 shadow-xl shadow-purple-500/20 ring-2 ring-purple-500/50 scale-[1.02]'
-                            : isTier2
-                            ? 'bg-gradient-to-b from-amber-950/60 via-slate-900 to-slate-900 border-amber-500 shadow-xl shadow-amber-500/20 ring-2 ring-amber-500/50 scale-[1.02]'
-                            : isTier1
-                            ? 'bg-gradient-to-b from-blue-950/60 via-slate-900 to-slate-900 border-blue-500 shadow-xl shadow-blue-500/20 ring-2 ring-blue-500/50 scale-[1.02]'
-                            : 'bg-gradient-to-b from-slate-800/80 via-slate-900 to-slate-900 border-emerald-500 shadow-xl shadow-emerald-500/20 ring-2 ring-emerald-500/50 scale-[1.02]'
+                          ? isVip
+                            ? 'bg-gradient-to-b from-amber-950/60 via-slate-900 to-slate-950 border-amber-500 shadow-2xl shadow-amber-500/20 ring-2 ring-amber-500/60 scale-[1.01]'
+                            : 'bg-gradient-to-b from-slate-850 via-slate-900 to-slate-950 border-emerald-500 shadow-xl shadow-emerald-500/20 ring-2 ring-emerald-500/50 scale-[1.01]'
                           : 'bg-slate-900/60 border-white/10 hover:border-white/25 hover:bg-slate-900/90'
                       }`}
                     >
                       {/* Top Badge */}
                       {plan.badge && (
-                        <div
-                          className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-md ${
-                            isTier2
-                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-black'
-                              : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
-                          }`}
-                        >
+                        <div className="absolute -top-3 right-4 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-lg bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 text-slate-950 font-sans border border-amber-300">
                           {plan.badge}
                         </div>
                       )}
@@ -519,48 +507,46 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                       <div>
                         {/* Tier Title & Checkmark */}
                         <div className="flex items-center justify-between">
-                          <span
-                            className={`text-xs font-mono font-bold uppercase ${
-                              isTier3
-                                ? 'text-purple-400'
-                                : isTier2
-                                ? 'text-amber-400'
-                                : isTier1
-                                ? 'text-blue-400'
-                                : 'text-emerald-400'
-                            }`}
-                          >
-                            Tier {plan.tierNumber}: {plan.nameEnglish}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            {isVip ? (
+                              <Crown className="w-5 h-5 text-amber-400" />
+                            ) : (
+                              <Zap className="w-5 h-5 text-emerald-400" />
+                            )}
+                            <span
+                              className={`text-sm font-mono font-bold uppercase ${
+                                isVip ? 'text-amber-400' : 'text-emerald-400'
+                              }`}
+                            >
+                              {plan.nameEnglish}
+                            </span>
+                          </div>
+
                           <div
-                            className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                            className={`w-5 h-5 rounded-full border flex items-center justify-center ${
                               isSelected
-                                ? isTier3
-                                  ? 'border-purple-400 bg-purple-400 text-black'
-                                  : isTier2
+                                ? isVip
                                   ? 'border-amber-400 bg-amber-400 text-black'
-                                  : isTier1
-                                  ? 'border-blue-400 bg-blue-400 text-black'
                                   : 'border-emerald-400 bg-emerald-400 text-black'
                                 : 'border-slate-600'
                             }`}
                           >
-                            {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                            {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                           </div>
                         </div>
 
                         {/* Burmese Title */}
-                        <div className="text-xs text-slate-300 font-burmese font-medium mt-0.5">
+                        <div className="text-xs text-slate-300 font-burmese font-medium mt-1">
                           {plan.nameBurmese}
                         </div>
 
-                        {/* Price */}
-                        <div className="mt-2.5 flex items-baseline gap-1">
-                          {isTier0 ? (
-                            <span className="text-2xl font-extrabold text-white font-burmese">အခမဲ့</span>
+                        {/* Price Display */}
+                        <div className="mt-3 flex items-baseline gap-1.5">
+                          {isFree ? (
+                            <span className="text-3xl font-extrabold text-white font-burmese">အခမဲ့</span>
                           ) : (
                             <>
-                              <span className="text-2xl font-extrabold text-white font-sans">
+                              <span className="text-3xl font-extrabold text-amber-300 font-sans">
                                 {plan.priceMmk.toLocaleString()}
                               </span>
                               <span className="text-xs text-slate-300 font-burmese">ကျပ် / တစ်လ</span>
@@ -570,51 +556,37 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
 
                         {/* Limit description highlight */}
                         <div
-                          className={`mt-2 p-2 rounded-xl text-xs font-burmese ${
-                            isTier3
-                              ? 'bg-purple-950/40 border border-purple-500/30 text-purple-200'
-                              : isTier2
-                              ? 'bg-amber-950/40 border border-amber-500/30 text-amber-200'
-                              : isTier1
-                              ? 'bg-blue-950/40 border border-blue-500/30 text-blue-200'
-                              : 'bg-slate-800/60 border border-white/10 text-slate-300'
+                          className={`mt-3 p-2.5 rounded-xl text-xs font-burmese ${
+                            isVip
+                              ? 'bg-amber-950/50 border border-amber-500/40 text-amber-200'
+                              : 'bg-slate-800/70 border border-white/10 text-slate-300'
                           }`}
                         >
                           <strong>{plan.limitDescription}</strong>
                         </div>
 
                         {/* Feature Bullet List */}
-                        <div className="mt-3 space-y-1.5 text-xs text-slate-300 font-burmese">
+                        <div className="mt-4 space-y-2 text-xs text-slate-300 font-burmese">
                           {plan.features.map((feat, i) => (
-                            <div key={i} className="flex items-start gap-1.5">
+                            <div key={i} className="flex items-start gap-2">
                               <CheckCircle2
-                                className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
-                                  isTier3
-                                    ? 'text-purple-400'
-                                    : isTier2
-                                    ? 'text-amber-400'
-                                    : isTier1
-                                    ? 'text-blue-400'
-                                    : 'text-emerald-400'
+                                className={`w-4 h-4 shrink-0 mt-0.5 ${
+                                  isVip ? 'text-amber-400' : 'text-emerald-400'
                                 }`}
                               />
-                              <span className="leading-snug">{feat}</span>
+                              <span className="leading-relaxed">{feat}</span>
                             </div>
                           ))}
                         </div>
                       </div>
 
                       {/* Select Action Footer */}
-                      <div className="mt-4 pt-3 border-t border-white/10 text-center">
+                      <div className="mt-5 pt-3.5 border-t border-white/10 text-center">
                         <span
                           className={`text-xs font-bold font-burmese ${
                             isSelected
-                              ? isTier3
-                                ? 'text-purple-300'
-                                : isTier2
+                              ? isVip
                                 ? 'text-amber-300'
-                                : isTier1
-                                ? 'text-blue-300'
                                 : 'text-emerald-300'
                               : 'text-slate-400'
                           }`}
@@ -634,29 +606,29 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             {selectedPlanData.isPaid ? (
               <div
                 id="payment-summary-section"
-                className="p-5 rounded-2xl bg-gradient-to-br from-slate-900/95 via-slate-900/80 to-slate-950 border border-amber-500/40 shadow-2xl space-y-5 animate-fadeIn"
+                className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-slate-900/95 via-slate-900/80 to-slate-950 border border-amber-500/40 shadow-2xl space-y-5 animate-fadeIn"
               >
-                {/* 1. Dynamic Payment Summary Header */}
+                {/* 1. Payment Summary Header */}
                 <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <CreditCard className="w-5 h-5 text-amber-400" />
                       <span className="text-xs font-bold uppercase tracking-wider text-amber-400 font-mono">
-                        Selected Plan Summary
+                        VIP Unlimited Subscription Summary
                       </span>
                     </div>
                     <div className="text-base font-bold text-white font-burmese">
                       {selectedPlanData.nameEnglish} ({selectedPlanData.nameBurmese}) &bull; {selectedPlanData.priceDisplay}
                     </div>
                     <div className="text-xs text-slate-300 font-burmese">
-                      {selectedPlanData.limitDescription} + မြန်မာ AI အသံ ၄၀ မျိုး အပြည့်အစုံ
+                      {selectedPlanData.limitDescription} + မြန်မာ AI Voice Models ၄၀ စလုံး အပြည့်အစုံ
                     </div>
                   </div>
 
-                  <div className="text-right sm:text-right bg-slate-950/80 px-4 py-2 rounded-xl border border-white/10 shrink-0">
-                    <div className="text-[11px] text-slate-400 font-burmese">ပေးသွင်းရမည့် ငွေပမာဏ:</div>
+                  <div className="text-right sm:text-right bg-slate-950/80 px-4 py-2.5 rounded-xl border border-white/10 shrink-0">
+                    <div className="text-[11px] text-slate-400 font-burmese">ပေးသွင်းရမည့် ပမာဏ:</div>
                     <div className="text-xl font-extrabold text-amber-300 font-sans">
-                      {selectedPlanData.priceMmk.toLocaleString()} MMK
+                      10,000 MMK
                     </div>
                   </div>
                 </div>
@@ -671,26 +643,26 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                       <div>
                         <div className="text-xs font-bold text-white">KBZPay (KPay) ငွေလွှဲရန် အချက်အလက်များ</div>
                         <div className="text-[11px] text-blue-200 font-burmese">
-                          အောက်ပါ KPay အကောင့်သို့ ရွေးချယ်ထားသော Plan တန်ဖိုး ({selectedPlanData.priceMmk.toLocaleString()} MMK) လွှဲပေးပါရန်
+                          အောက်ပါ KPay အကောင့်သို့ VIP Unlimited Plan တန်ဖိုး (10,000 MMK) တိုက်ရိုက် လွှဲပေးပါရန်
                         </div>
                       </div>
                     </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-900/80 text-blue-300 border border-blue-400/40 font-mono">
-                      Direct Gateway
+                    <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-blue-900/80 text-blue-300 border border-blue-400/40 font-mono">
+                      Official Gateway
                     </span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     {/* Account Name */}
-                    <div className="p-3 rounded-xl bg-slate-950/90 border border-white/10 space-y-1">
+                    <div className="p-3.5 rounded-xl bg-slate-950/90 border border-white/10 space-y-1">
                       <span className="text-[11px] text-slate-400 font-burmese">KPay အကောင့်ပိုင်ရှင် အမည် (Account Name):</span>
                       <div className="text-sm font-bold text-white font-sans flex items-center gap-1.5">
-                        <span className="text-amber-400 font-extrabold">Min Zaw</span>
+                        <span className="text-amber-400 font-extrabold text-base">Min Zaw</span>
                       </div>
                     </div>
 
                     {/* KPay Phone Number with Copy Button */}
-                    <div className="p-3 rounded-xl bg-slate-950/90 border border-blue-500/30 flex items-center justify-between gap-2">
+                    <div className="p-3.5 rounded-xl bg-slate-950/90 border border-blue-500/30 flex items-center justify-between gap-2">
                       <div className="space-y-0.5">
                         <span className="text-[11px] text-slate-400 font-burmese">KPay ဖုန်းနံပါတ် (Phone Number):</span>
                         <div className="text-base font-mono font-bold text-amber-300 tracking-wider">
@@ -700,7 +672,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                       <button
                         type="button"
                         onClick={handleCopyKPayNumber}
-                        className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-all shadow-md shadow-blue-600/30 shrink-0"
+                        className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-all shadow-md shadow-blue-600/30 shrink-0"
                       >
                         {copiedKpay ? (
                           <>
@@ -804,7 +776,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                       <div>
                         <strong>{submitSuccessMsg}</strong>
                         <div className="text-[11px] text-amber-300/80 mt-0.5">
-                          Admin Master မှ စိစစ်အတည်ပြုပြီးပါက သင်၏ VIP Limit (30 / 70 / Unlimited) ချက်ချင်း ပွင့်သွားပါမည်။
+                          Admin Master မှ စိစစ်အတည်ပြုပြီးပါက သင်၏ VIP Unlimited ဗီဒီယို ထုတ်ယူခွင့် ချက်ချင်း ပွင့်သွားပါမည်။
                         </div>
                       </div>
                     </div>
@@ -830,7 +802,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                         <>
                           <CheckCircle2 className="w-4 h-4" />
                           <span className="font-burmese">
-                            ငွေလွှဲပြေစာ ပေးပို့အတည်ပြုမည် ({selectedPlanData.priceDisplay})
+                            ငွေလွှဲပြေစာ ပေးပို့အတည်ပြုမည် (၁၀,၀၀၀ ကျပ်)
                           </span>
                         </>
                       )}
@@ -846,18 +818,18 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                     <CheckCircle2 className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="font-bold text-white">Tier 0: Free Plan (အခမဲ့ စမ်းသပ်ခြင်း)</div>
+                    <div className="font-bold text-white">Free Plan (အခမဲ့ စမ်းသပ်ခြင်း)</div>
                     <div className="text-slate-400 text-[11px]">
-                      တစ်ရက်လျှင် ၂ ပုဒ် အခမဲ့ ပြုလုပ်ခွင့် ရရှိထားပါသည်။ နေ့စဉ် အလိုအလျောက် Auto Reset ပြုလုပ်ပေးပါသည်။
+                      တစ်ရက်လျှင် ၂ ပုဒ် အခမဲ့ ပြုလုပ်ခွင့် ရရှိထားပါသည်။ ၂၄ နာရီပြည့်တိုင်း အလိုအလျောက် Reset ပြုလုပ်ပေးပါသည်။
                     </div>
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSelectedPlanId('standard')}
+                  onClick={() => setSelectedPlanId('vip_unlimited')}
                   className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer transition-all shrink-0"
                 >
-                  အစီအစဉ်များ အဆင့်မြှင့်တင်ရန် နှိပ်ပါ
+                  VIP Unlimited သို့ အဆင့်မြှင့်တင်ရန် နှိပ်ပါ
                 </button>
               </div>
             )}

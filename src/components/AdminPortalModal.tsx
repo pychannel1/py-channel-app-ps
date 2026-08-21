@@ -620,9 +620,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                                   {/* Plan Tag */}
                                   <span
                                     className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-                                      r.planId === 'unlimited_pro'
-                                        ? 'bg-purple-950 text-purple-300 border border-purple-500/40'
-                                        : r.planId === 'standard'
+                                      r.planId === 'vip_unlimited' || r.planId === 'unlimited_pro'
                                         ? 'bg-amber-950 text-amber-300 border border-amber-500/40'
                                         : 'bg-blue-950 text-blue-300 border border-blue-500/40'
                                     }`}

@@ -48,11 +48,11 @@ export type StudioMode = 'manual' | 'auto';
 
 export type VipStatus = 'free' | 'pending' | 'active_vip';
 
-export type PlanTierId = 'free' | 'basic' | 'standard' | 'unlimited_pro';
+export type PlanTierId = 'free' | 'vip_unlimited' | 'basic' | 'standard' | 'unlimited_pro';
 
 export interface PricingPlan {
   id: PlanTierId;
-  tierNumber: 0 | 1 | 2 | 3;
+  tierNumber: number;
   nameBurmese: string;
   nameEnglish: string;
   priceMmk: number;
@@ -63,7 +63,7 @@ export interface PricingPlan {
   badge?: string;
   features: string[];
   isPaid: boolean;
-  recapLimit: number; // 2 for free daily, 30 for basic, 70 for standard, 99999 for unlimited
+  recapLimit: number; // 2 for free daily, 999999 for unlimited
   periodType: 'daily' | 'monthly' | 'unlimited';
 }
 
