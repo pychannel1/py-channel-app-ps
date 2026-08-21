@@ -56,11 +56,27 @@ export const Step2SourceText: React.FC<Step2SourceTextProps> = ({
   const [isVerifyingKey, setIsVerifyingKey] = useState(false);
   const [keyStatusMsg, setKeyStatusMsg] = useState('');
   const [isKeyValid, setIsKeyValid] = useState(Boolean(geminiApiKey && geminiApiKey.trim().length > 10));
+  const [missingGeminiAlert, setMissingGeminiAlert] = useState(false);
 
   useEffect(() => {
     setLocalGeminiKey(geminiApiKey);
-    setIsKeyValid(Boolean(geminiApiKey && geminiApiKey.trim().length > 10));
+    const valid = Boolean(geminiApiKey && geminiApiKey.trim().length > 10);
+    setIsKeyValid(valid);
+    if (valid) {
+      setMissingGeminiAlert(false);
+    }
   }, [geminiApiKey]);
+
+  const handleDirectTranslateClick = () => {
+    const activeKey = geminiApiKey || localGeminiKey;
+    if (!activeKey || activeKey.trim().length < 10) {
+      setMissingGeminiAlert(true);
+      setShowKeyInput(true);
+      return;
+    }
+    setMissingGeminiAlert(false);
+    onTranslateWithDirectGeminiApi();
+  };
 
   const handleTestAndSaveKey = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -85,6 +101,7 @@ export const Step2SourceText: React.FC<Step2SourceTextProps> = ({
 
       if (response.ok && data.success) {
         setIsKeyValid(true);
+        setMissingGeminiAlert(false);
         setKeyStatusMsg('✓ Gemini API ချိတ်ဆက်မှု အောင်မြင်ပြီး သိမ်းဆည်းပါပြီ');
         onSaveGeminiKey(cleanKey);
       } else {
@@ -93,6 +110,7 @@ export const Step2SourceText: React.FC<Step2SourceTextProps> = ({
       }
     } catch {
       setIsKeyValid(true);
+      setMissingGeminiAlert(false);
       setKeyStatusMsg('✓ Gemini API Key သိမ်းဆည်းပြီးပါပြီ');
       onSaveGeminiKey(cleanKey);
     } finally {
@@ -337,11 +355,21 @@ ${lines}
                     အပြင်ထွက်စရာမလိုဘဲ သိမ်းဆည်းထားသော Gemini API Key ဖြင့် တိုက်ရိုက်ခေါ်ယူပြီး Step 3 သို့ ချက်ချင်း အလိုအလျောက် ဘာသာပြန်ပေးမည်။
                   </p>
 
+                  {/* Missing Gemini Key Warning Alert */}
+                  {missingGeminiAlert && (
+                    <div className="p-3 rounded-xl bg-red-950/80 border border-red-500/50 flex items-center gap-2 text-red-200 text-xs font-burmese animate-fadeIn">
+                      <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                      <span className="font-semibold">
+                        ကျေးဇူးပြု၍ သင်၏ Google Gemini API Key ကို အရင် ထည့်သွင်းပေးပါ (သို့မဟုတ် အထက်ပါ Option 1 ဖြင့် Gemini Web/App တွင် အခမဲ့ ဘာသာပြန်နိုင်ပါသည်)
+                      </span>
+                    </div>
+                  )}
+
                   {/* 1-Click Direct Translate Button */}
                   <button
                     id="gemini-api-direct-translate-btn"
                     disabled={isTranslating}
-                    onClick={onTranslateWithDirectGeminiApi}
+                    onClick={handleDirectTranslateClick}
                     className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-purple-600 via-fuchsia-600 to-indigo-600 hover:from-purple-500 hover:via-fuchsia-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm tracking-wide shadow-xl shadow-purple-600/35 border border-purple-300/40 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isTranslating ? (

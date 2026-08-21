@@ -21,6 +21,8 @@ interface HeaderProps {
   usedCredits: number;
   totalCredits: number;
   vipInfo: VipSubscriptionInfo;
+  hasAssemblyKey?: boolean;
+  hasGeminiKey?: boolean;
   onOpenSettings: (tab?: 'api' | 'vip') => void;
   onOpenAdminPortal: () => void;
   isAdminAuthenticated: boolean;
@@ -33,6 +35,8 @@ export const Header: React.FC<HeaderProps> = ({
   usedCredits,
   totalCredits,
   vipInfo,
+  hasAssemblyKey = false,
+  hasGeminiKey = false,
   onOpenSettings,
   onOpenAdminPortal,
   isAdminAuthenticated,
@@ -43,6 +47,10 @@ export const Header: React.FC<HeaderProps> = ({
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [logoClickCount, setLogoClickCount] = useState(0);
+
+  // Calculate API Keys status
+  const apiKeysCount = (hasAssemblyKey ? 1 : 0) + (hasGeminiKey ? 1 : 0);
+  const isAllKeysReady = apiKeysCount === 2;
 
   // Easter egg: 5 rapid clicks on logo opens Admin Master Portal
   const handleLogoClick = () => {
@@ -110,6 +118,35 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right Section: Clean User Controls */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Bring Your Own API Keys Button */}
+          <button
+            id="header-api-keys-btn"
+            type="button"
+            onClick={() => onOpenSettings('api')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all cursor-pointer shadow-sm ${
+              isAllKeysReady
+                ? 'bg-emerald-950/70 hover:bg-emerald-900/80 border-emerald-500/40 text-emerald-300'
+                : apiKeysCount === 1
+                ? 'bg-amber-950/70 hover:bg-amber-900/80 border-amber-500/40 text-amber-300'
+                : 'bg-slate-900/90 hover:bg-slate-800 border-white/10 text-slate-200 hover:text-amber-300'
+            }`}
+            title="Configure your own AssemblyAI & Gemini API Keys"
+          >
+            <KeyRound className={`w-3.5 h-3.5 ${isAllKeysReady ? 'text-emerald-400' : 'text-amber-400'}`} />
+            <span className="font-sans font-semibold">API Keys</span>
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md font-bold ${
+                isAllKeysReady
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : apiKeysCount === 1
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : 'bg-slate-800 text-slate-400 border border-white/10'
+              }`}
+            >
+              {isAllKeysReady ? '✓ Ready' : apiKeysCount === 1 ? '1/2' : 'Setup'}
+            </span>
+          </button>
+
           {/* Settings & VIP Button */}
           <button
             id="header-user-settings-btn"
@@ -118,8 +155,8 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-white/10 text-xs text-slate-200 hover:text-amber-300 font-medium transition-all cursor-pointer shadow-sm"
             title="Settings & VIP Subscription"
           >
-            <Settings className="w-3.5 h-3.5 text-amber-400" />
-            <span className="font-burmese">Settings & VIP</span>
+            <Crown className="w-3.5 h-3.5 text-amber-400" />
+            <span className="font-burmese">VIP & Settings</span>
           </button>
 
           {/* Admin Direct Access Button (If Logged In) */}
@@ -148,7 +185,17 @@ export const Header: React.FC<HeaderProps> = ({
                   {userEmail}
                 </div>
                 <div className="text-[10px] text-amber-400/90 font-mono">
-                  {isVipActive ? '👑 VIP Unlimited' : isVipPending ? '⏳ Pending' : 'Free: 3 Left'}
+                  {isVipActive
+                    ? vipInfo.planId === 'unlimited_pro'
+                      ? '👑 Unlimited Pro'
+                      : vipInfo.planId === 'standard'
+                      ? '⭐ Standard (70/mo)'
+                      : vipInfo.planId === 'basic'
+                      ? '⚡ Basic (30/mo)'
+                      : '👑 VIP Active'
+                    : isVipPending
+                    ? '⏳ Pending'
+                    : 'Free: 2/day'}
                 </div>
               </div>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
@@ -162,7 +209,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <div className="mt-1 flex items-center gap-1.5">
                     {isVipActive ? (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/40">
-                        👑 PRO VIP MEMBER
+                        {vipInfo.planName || '👑 VIP Member'}
                       </span>
                     ) : isVipPending ? (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/40">
@@ -170,7 +217,7 @@ export const Header: React.FC<HeaderProps> = ({
                       </span>
                     ) : (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-white/10">
-                        Free Plan (3 Generations)
+                        Free Plan (2 Daily Recaps)
                       </span>
                     )}
                   </div>

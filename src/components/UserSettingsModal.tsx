@@ -24,8 +24,13 @@ import {
   Smartphone,
   Info,
   CheckCircle,
+  HelpCircle,
+  Flame,
+  Layers,
+  Infinity,
 } from 'lucide-react';
-import { VipSubscriptionInfo, VipStatus } from '../types';
+import { VipSubscriptionInfo, VipStatus, PlanTierId } from '../types';
+import { PRICING_PLANS, getPlanById } from '../data/pricingPlans';
 
 interface UserSettingsModalProps {
   isOpen: boolean;
@@ -103,9 +108,11 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   }, [geminiApiKey]);
 
   // ----------------------------------------------------
-  // VIP Subscription Tab State
+  // VIP Subscription Tab State (4-Tier Structure)
   // ----------------------------------------------------
-  const [selectedPlan, setSelectedPlan] = useState<'pro_monthly' | 'pro_annual'>('pro_monthly');
+  const [selectedPlanId, setSelectedPlanId] = useState<PlanTierId>(
+    vipInfo.planId && vipInfo.planId !== 'free' ? vipInfo.planId : 'standard'
+  );
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'kpay' | 'wavepay'>('kpay');
   const [slipFile, setSlipFile] = useState<File | null>(null);
   const [slipPreviewUrl, setSlipPreviewUrl] = useState<string | null>(vipInfo.slipImage || null);
@@ -116,6 +123,8 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   const [copiedKpay, setCopiedKpay] = useState(false);
   const [copiedWave, setCopiedWave] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
+
+  const selectedPlanData = getPlanById(selectedPlanId);
 
   // Close on Escape key
   useEffect(() => {
@@ -250,37 +259,54 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
 
     setTimeout(() => {
       setIsSubmittingSlip(false);
+      const plan = getPlanById(selectedPlanId);
       const updatedInfo: VipSubscriptionInfo = {
         status: 'pending',
-        planId: selectedPlan,
-        planName: selectedPlan === 'pro_monthly' ? 'Pro Monthly Plan' : 'Pro Annual Plan',
-        freeGenerationsRemaining: 0,
-        maxFreeGenerations: 3,
+        planId: selectedPlanId,
+        planName: `${plan.nameEnglish} (${plan.nameBurmese})`,
+        dailyFreeRemaining: 0,
+        maxDailyFree: 2,
+        monthlyRemaining: plan.recapLimit,
+        maxMonthlyLimit: plan.recapLimit,
         submittedAt: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        transactionRef: transactionRef.trim() || 'KPAY-' + Math.floor(100000 + Math.random() * 900000),
+        transactionRef: transactionRef.trim() || `${selectedPaymentMethod.toUpperCase()}-${Math.floor(100000 + Math.random() * 900000)}`,
         slipImage: slipPreviewUrl || undefined,
         paymentMethod: selectedPaymentMethod,
       };
 
       onUpdateVipInfo(updatedInfo);
-      setSubmitSuccessMsg('✓ ငွေလွှဲပြေစာ ပေးပို့ပြီးပါပြီ။ Admin စိစစ်ပြီးပါက VIP Pro သို့ အလိုအလျောက် ပြောင်းလဲပေးပါမည်။');
+      setSubmitSuccessMsg(`✓ ငွေလွှဲပြေစာ (${plan.priceDisplay}) အား ပေးပို့ပြီးပါပြီ။ Admin စိစစ်ပြီးပါက VIP စနစ်သို့ အလိုအလျောက် ဖွင့်လှစ်ပေးပါမည်။`);
     }, 1200);
   };
 
   // Instant VIP Simulation (For Admin & User Testing)
-  const handleToggleInstantVip = (newStatus: VipStatus) => {
-    const updated: VipSubscriptionInfo = {
-      status: newStatus,
-      planId: newStatus === 'active_vip' ? 'pro_monthly' : 'free',
-      planName: newStatus === 'active_vip' ? 'Pro VIP Unlimited' : 'Free Plan',
-      freeGenerationsRemaining: newStatus === 'active_vip' ? 9999 : 3,
-      maxFreeGenerations: 3,
-      approvedAt: newStatus === 'active_vip' ? 'ယခု' : undefined,
-      expiresAt: newStatus === 'active_vip' ? 'ရက် ၃၀ ကျန်ရှိပါသည်' : undefined,
-      transactionRef: newStatus === 'active_vip' ? 'KPAY-AUTO-8892' : undefined,
-      paymentMethod: selectedPaymentMethod,
-    };
-    onUpdateVipInfo(updated);
+  const handleToggleInstantVip = (targetPlanId: PlanTierId) => {
+    const plan = getPlanById(targetPlanId);
+    if (targetPlanId === 'free') {
+      const updated: VipSubscriptionInfo = {
+        status: 'free',
+        planId: 'free',
+        planName: 'Free Plan (အခမဲ့ စမ်းသပ်ခြင်း)',
+        dailyFreeRemaining: 2,
+        maxDailyFree: 2,
+      };
+      onUpdateVipInfo(updated);
+    } else {
+      const updated: VipSubscriptionInfo = {
+        status: 'active_vip',
+        planId: targetPlanId,
+        planName: `${plan.nameEnglish} (${plan.nameBurmese})`,
+        dailyFreeRemaining: 0,
+        maxDailyFree: 2,
+        monthlyRemaining: plan.recapLimit,
+        maxMonthlyLimit: plan.recapLimit,
+        approvedAt: 'ယခု',
+        expiresAt: 'ရက် ၃၀ ကျန်ရှိပါသည်',
+        transactionRef: `${selectedPaymentMethod.toUpperCase()}-AUTO-${Math.floor(1000 + Math.random() * 9000)}`,
+        paymentMethod: selectedPaymentMethod,
+      };
+      onUpdateVipInfo(updated);
+    }
   };
 
   const isVipActive = vipInfo.status === 'active_vip';
@@ -290,7 +316,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn">
       <div
         id="user-settings-modal"
-        className="glass-panel w-full max-w-3xl rounded-2xl border border-white/15 bg-slate-950/95 shadow-2xl p-4 sm:p-6 relative flex flex-col max-h-[92vh] overflow-y-auto"
+        className="glass-panel w-full max-w-4xl rounded-3xl border border-white/15 bg-slate-950/95 shadow-2xl p-4 sm:p-6 relative flex flex-col max-h-[94vh] overflow-y-auto"
       >
         {/* Header with Title and Close Button */}
         <div className="flex items-center justify-between pb-4 border-b border-white/10">
@@ -300,13 +326,13 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
-                pY Channel Settings
+                pY Channel Pricing & Settings
                 <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 border border-white/10 text-slate-300 font-normal">
                   {userEmail}
                 </span>
               </h2>
               <p className="text-xs text-slate-400 font-burmese">
-                စနစ်ချိန်ညှိမှုနှင့် VIP စာရင်းသွင်းမှု စီမံခန့်ခွဲခြင်း
+                VIP စာရင်းသွင်းမှု အစီအစဉ်များနှင့် API ချိန်ညှိမှုများ
               </p>
             </div>
           </div>
@@ -333,17 +359,17 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             }`}
           >
             <Crown className="w-4 h-4 text-amber-200" />
-            <span>👑 VIP Subscription & Billing</span>
+            <span>👑 VIP Pricing & Plans (အစီအစဉ်များ)</span>
             {isVipActive ? (
-              <span className="text-[10px] bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded-full font-mono">
+              <span className="text-[10px] bg-emerald-950/90 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-mono font-bold">
                 Active VIP
               </span>
             ) : isVipPending ? (
-              <span className="text-[10px] bg-amber-950/80 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded-full font-mono">
+              <span className="text-[10px] bg-amber-950/90 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-mono font-bold">
                 Pending
               </span>
             ) : (
-              <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded-full font-mono">
+              <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-mono">
                 Free
               </span>
             )}
@@ -373,13 +399,13 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
         </div>
 
         {/* ========================================================================= */}
-        {/* TAB 1: VIP SUBSCRIPTION & BILLING */}
+        {/* TAB 1: VIP SUBSCRIPTION & 4-TIER BILLING */}
         {/* ========================================================================= */}
         {activeTab === 'vip' && (
-          <div className="space-y-5 animate-fadeIn">
-            {/* Current Plan Status Box */}
+          <div className="space-y-6 animate-fadeIn">
+            {/* Current Active Status Banner */}
             <div
-              className={`p-4 rounded-xl border relative overflow-hidden ${
+              className={`p-4 rounded-2xl border relative overflow-hidden ${
                 isVipActive
                   ? 'bg-gradient-to-br from-amber-950/40 via-slate-900/90 to-amber-900/30 border-amber-500/50 shadow-lg shadow-amber-500/10'
                   : isVipPending
@@ -390,7 +416,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-start gap-3">
                   <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                    className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
                       isVipActive
                         ? 'bg-gradient-to-tr from-amber-400 to-orange-500 text-black shadow-md shadow-amber-500/30'
                         : isVipPending
@@ -409,7 +435,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                        Current Status
+                        Current Account Status
                       </span>
                       {isVipActive && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 border border-amber-400 text-amber-300 uppercase tracking-widest font-mono">
@@ -418,47 +444,49 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                       )}
                       {isVipPending && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 border border-blue-400 text-blue-300 uppercase tracking-widest font-mono">
-                          ⏳ Pending Verification
+                          ⏳ Pending Approval
                         </span>
                       )}
                       {!isVipActive && !isVipPending && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 border border-slate-700 text-slate-300 uppercase tracking-widest font-mono">
-                          Free Starter
+                          Tier 0: Free
                         </span>
                       )}
                     </div>
 
                     <h3 className="text-base sm:text-lg font-bold text-white mt-0.5">
                       {isVipActive
-                        ? '👑 Pro VIP Unlimited Plan'
+                        ? `👑 ${vipInfo.planName || 'VIP Active'}`
                         : isVipPending
-                        ? '⏳ ငွေလွှဲပြေစာ စိစစ်ဆဲဖြစ်ပါသည် (Pending Approval)'
-                        : 'Free Plan (3 Generations Left)'}
+                        ? `⏳ ငွေလွှဲပြေစာ စိစစ်ဆဲဖြစ်ပါသည် (${vipInfo.planName})`
+                        : 'Tier 0: Free Plan (တစ်ရက်လျှင် ၂ ပုဒ် အခမဲ့)'}
                     </h3>
                     <p className="text-xs text-slate-300 font-burmese mt-0.5">
                       {isVipActive
-                        ? 'ရုပ်ရှင်ရီကပ် အကန့်အသတ်မရှိ ပြုလုပ်နိုင်ပြီး AI အသံ ၄၀ မျိုးနှင့် မြန်ဆန်သော Render စနစ် ရရှိထားပါသည်'
+                        ? 'ရုပ်ရှင်ရီကပ် ထုတ်ယူခွင့် အပြည့်အစုံနှင့် မြန်မာ AI အသံ ၄၀ မျိုး အသုံးပြုခွင့် ရရှိထားပါသည်'
                         : isVipPending
-                        ? 'Admin မှ ပြေစာစစ်ဆေးပြီးပါက ၁၀-၃၀ မိနစ်အတွင်း VIP Pro စနစ် အလိုအလျောက် ပွင့်ပါမည်'
-                        : 'အခမဲ့ ရီကပ် ၃ ကြိမ် ပြုလုပ်ခွင့် ကျန်ရှိပါသည်။ အကန့်အသတ်မရှိ ပြုလုပ်ရန် Pro သို့ အဆင့်မြှင့်တင်ပါ'}
+                        ? 'Admin မှ ပြေစာစစ်ဆေးပြီးပါက ၁၀-၃၀ မိနစ်အတွင်း VIP စနစ် အလိုအလျောက် ဖွင့်ပေးပါမည်'
+                        : 'အခမဲ့ စမ်းသပ်ခြင်းဖြင့် တစ်ရက်လျှင် ၂ ပုဒ် အခမဲ့ ပြုလုပ်ခွင့်ရရှိပြီး နေ့စဉ် အလိုအလျောက် Reset ပြုလုပ်ပေးပါသည်'}
                     </p>
                   </div>
                 </div>
 
-                {/* Quick Simulation / Action Controls */}
+                {/* Instant Testing Simulator Control */}
                 <div className="flex items-center gap-2 self-end sm:self-center">
                   {isVipActive ? (
                     <button
+                      type="button"
                       onClick={() => handleToggleInstantVip('free')}
-                      className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-white/10 transition-all cursor-pointer"
+                      className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 transition-all cursor-pointer"
                     >
                       Reset to Free
                     </button>
                   ) : (
                     <button
-                      onClick={() => handleToggleInstantVip('active_vip')}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-all cursor-pointer font-medium flex items-center gap-1"
-                      title="Test VIP Active Mode Instantly"
+                      type="button"
+                      onClick={() => handleToggleInstantVip(selectedPlanId === 'free' ? 'standard' : selectedPlanId)}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-all cursor-pointer font-medium flex items-center gap-1.5"
+                      title="Instant VIP Testing Mode"
                     >
                       <Sparkles className="w-3.5 h-3.5" />
                       <span>Instant VIP Demo</span>
@@ -468,159 +496,436 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
               </div>
             </div>
 
-            {/* Plan Cards Grid */}
+            {/* ------------------------------------------------------------------------- */}
+            {/* NEW 4-TIER PRICING CARDS LAYOUT */}
+            {/* ------------------------------------------------------------------------- */}
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                  <Star className="w-4 h-4 text-amber-400" />
-                  Upgrade Plans (VIP အဆင့်မြှင့်တင်ရန် အစီအစဉ်များ)
-                </h4>
-                <span className="text-[11px] text-amber-400/90 font-mono">Special Promotion ⚡</span>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-100 flex items-center gap-2 font-burmese">
+                    <Star className="w-4 h-4 text-amber-400" />
+                    ရွေးချယ်နိုင်သော အစီအစဉ် ၄ မျိုး (4-Tier Plans)
+                  </h4>
+                  <p className="text-xs text-slate-400 font-burmese">
+                    မိမိနှင့် ကိုက်ညီသော အစီအစဉ်အား နှိပ်၍ ရွေးချယ်ပါ
+                  </p>
+                </div>
+                <span className="text-[11px] text-amber-400 font-mono font-bold bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-full">
+                  Special Rates ⚡
+                </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {/* Plan 1: Pro Monthly */}
-                <div
-                  onClick={() => setSelectedPlan('pro_monthly')}
-                  className={`p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
-                    selectedPlan === 'pro_monthly'
-                      ? 'bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-900 border-amber-500 shadow-xl shadow-amber-500/10 ring-1 ring-amber-500/40'
-                      : 'bg-slate-900/60 border-white/10 hover:border-white/20'
-                  }`}
-                >
-                  <div className="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-[10px] font-bold text-black uppercase tracking-wider shadow-sm">
-                    🌟 Most Popular
-                  </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                {PRICING_PLANS.map((plan) => {
+                  const isSelected = selectedPlanId === plan.id;
+                  const isTier0 = plan.tierNumber === 0;
+                  const isTier1 = plan.tierNumber === 1;
+                  const isTier2 = plan.tierNumber === 2;
+                  const isTier3 = plan.tierNumber === 3;
 
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-amber-400 font-mono">PRO MONTHLY</span>
-                      <div
-                        className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                          selectedPlan === 'pro_monthly'
-                            ? 'border-amber-400 bg-amber-400 text-black'
-                            : 'border-slate-600'
-                        }`}
-                      >
-                        {selectedPlan === 'pro_monthly' && <Check className="w-3 h-3 stroke-[3]" />}
+                  return (
+                    <div
+                      key={plan.id}
+                      onClick={() => setSelectedPlanId(plan.id)}
+                      className={`p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
+                        isSelected
+                          ? isTier3
+                            ? 'bg-gradient-to-b from-purple-950/60 via-slate-900 to-slate-900 border-purple-500 shadow-xl shadow-purple-500/20 ring-2 ring-purple-500/50 scale-[1.02]'
+                            : isTier2
+                            ? 'bg-gradient-to-b from-amber-950/60 via-slate-900 to-slate-900 border-amber-500 shadow-xl shadow-amber-500/20 ring-2 ring-amber-500/50 scale-[1.02]'
+                            : isTier1
+                            ? 'bg-gradient-to-b from-blue-950/60 via-slate-900 to-slate-900 border-blue-500 shadow-xl shadow-blue-500/20 ring-2 ring-blue-500/50 scale-[1.02]'
+                            : 'bg-gradient-to-b from-slate-800/80 via-slate-900 to-slate-900 border-emerald-500 shadow-xl shadow-emerald-500/20 ring-2 ring-emerald-500/50 scale-[1.02]'
+                          : 'bg-slate-900/60 border-white/10 hover:border-white/25 hover:bg-slate-900/90'
+                      }`}
+                    >
+                      {/* Top Badge */}
+                      {plan.badge && (
+                        <div
+                          className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-md ${
+                            isTier2
+                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-black'
+                              : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
+                          }`}
+                        >
+                          {plan.badge}
+                        </div>
+                      )}
+
+                      <div>
+                        {/* Tier Title & Checkmark */}
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={`text-xs font-mono font-bold uppercase ${
+                              isTier3
+                                ? 'text-purple-400'
+                                : isTier2
+                                ? 'text-amber-400'
+                                : isTier1
+                                ? 'text-blue-400'
+                                : 'text-emerald-400'
+                            }`}
+                          >
+                            Tier {plan.tierNumber}: {plan.nameEnglish}
+                          </span>
+                          <div
+                            className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                              isSelected
+                                ? isTier3
+                                  ? 'border-purple-400 bg-purple-400 text-black'
+                                  : isTier2
+                                  ? 'border-amber-400 bg-amber-400 text-black'
+                                  : isTier1
+                                  ? 'border-blue-400 bg-blue-400 text-black'
+                                  : 'border-emerald-400 bg-emerald-400 text-black'
+                                : 'border-slate-600'
+                            }`}
+                          >
+                            {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                          </div>
+                        </div>
+
+                        {/* Burmese Title */}
+                        <div className="text-xs text-slate-300 font-burmese font-medium mt-0.5">
+                          {plan.nameBurmese}
+                        </div>
+
+                        {/* Price */}
+                        <div className="mt-2.5 flex items-baseline gap-1">
+                          {isTier0 ? (
+                            <span className="text-2xl font-extrabold text-white font-burmese">အခမဲ့</span>
+                          ) : (
+                            <>
+                              <span className="text-2xl font-extrabold text-white font-sans">
+                                {plan.priceMmk.toLocaleString()}
+                              </span>
+                              <span className="text-xs text-slate-300 font-burmese">ကျပ် / တစ်လ</span>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Limit description highlight */}
+                        <div
+                          className={`mt-2 p-2 rounded-xl text-xs font-burmese ${
+                            isTier3
+                              ? 'bg-purple-950/40 border border-purple-500/30 text-purple-200'
+                              : isTier2
+                              ? 'bg-amber-950/40 border border-amber-500/30 text-amber-200'
+                              : isTier1
+                              ? 'bg-blue-950/40 border border-blue-500/30 text-blue-200'
+                              : 'bg-slate-800/60 border border-white/10 text-slate-300'
+                          }`}
+                        >
+                          <strong>{plan.limitDescription}</strong>
+                        </div>
+
+                        {/* Feature Bullet List */}
+                        <div className="mt-3 space-y-1.5 text-xs text-slate-300 font-burmese">
+                          {plan.features.map((feat, i) => (
+                            <div key={i} className="flex items-start gap-1.5">
+                              <CheckCircle2
+                                className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                                  isTier3
+                                    ? 'text-purple-400'
+                                    : isTier2
+                                    ? 'text-amber-400'
+                                    : isTier1
+                                    ? 'text-blue-400'
+                                    : 'text-emerald-400'
+                                }`}
+                              />
+                              <span className="leading-snug">{feat}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Select Action Footer */}
+                      <div className="mt-4 pt-3 border-t border-white/10 text-center">
+                        <span
+                          className={`text-xs font-bold font-burmese ${
+                            isSelected
+                              ? isTier3
+                                ? 'text-purple-300'
+                                : isTier2
+                                ? 'text-amber-300'
+                                : isTier1
+                                ? 'text-blue-300'
+                                : 'text-emerald-300'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {isSelected ? '✓ ရွေးချယ်ထားပါသည်' : 'ရွေးချယ်ရန် နှိပ်ပါ'}
+                        </span>
                       </div>
                     </div>
-
-                    <div className="mt-2 flex items-baseline gap-1.5">
-                      <span className="text-2xl sm:text-3xl font-extrabold text-white">35,000</span>
-                      <span className="text-xs text-slate-300 font-burmese">ကျပ် / တစ်လ</span>
-                    </div>
-
-                    <p className="text-xs text-slate-400 font-burmese mt-1">
-                      လစဉ် အကန့်အသတ်မရှိ ရုပ်ရှင်ဇာတ်လမ်းပြော ရီကပ် ပြုလုပ်ရန်
-                    </p>
-
-                    <div className="mt-3.5 space-y-2 text-xs text-slate-300 font-burmese">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span><strong>Unlimited Recaps</strong> - အကန့်အသတ်မရှိ ရီကပ်ဖန်တီးခွင့်</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span><strong>All 40 Burmese AI Voices</strong> - အသံ ၄၀ မျိုး အပြည့်အစုံ</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span><strong>Fast 4K / 1080p 60fps</strong> - အမြန်ဆုံး Render စနစ်</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span><strong>No Watermark</strong> - YouTube, TikTok အတွက် သီးသန့်</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-white/10 text-center">
-                    <span className="text-xs font-semibold text-amber-300">
-                      {selectedPlan === 'pro_monthly' ? '✓ ရွေးချယ်ထားပါသည်' : 'ရွေးချယ်မည်'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Plan 2: Pro Annual / Lifetime */}
-                <div
-                  onClick={() => setSelectedPlan('pro_annual')}
-                  className={`p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
-                    selectedPlan === 'pro_annual'
-                      ? 'bg-gradient-to-b from-indigo-950/40 via-slate-900 to-slate-900 border-indigo-500 shadow-xl shadow-indigo-500/10 ring-1 ring-indigo-500/40'
-                      : 'bg-slate-900/60 border-white/10 hover:border-white/20'
-                  }`}
-                >
-                  <div className="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full bg-indigo-600 text-[10px] font-bold text-white uppercase tracking-wider shadow-sm">
-                    ⚡ 70% OFF
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-indigo-400 font-mono">PRO ANNUAL (1 YEAR)</span>
-                      <div
-                        className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                          selectedPlan === 'pro_annual'
-                            ? 'border-indigo-400 bg-indigo-400 text-black'
-                            : 'border-slate-600'
-                        }`}
-                      >
-                        {selectedPlan === 'pro_annual' && <Check className="w-3 h-3 stroke-[3]" />}
-                      </div>
-                    </div>
-
-                    <div className="mt-2 flex items-baseline gap-1.5">
-                      <span className="text-2xl sm:text-3xl font-extrabold text-white">120,000</span>
-                      <span className="text-xs text-slate-300 font-burmese">ကျပ် / တစ်နှစ်</span>
-                    </div>
-
-                    <p className="text-xs text-slate-400 font-burmese mt-1">
-                      တစ်နှစ်ပတ်လုံး အထူးသက်သာသော နှုန်းထားဖြင့် အသုံးပြုရန်
-                    </p>
-
-                    <div className="mt-3.5 space-y-2 text-xs text-slate-300 font-burmese">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                        <span><strong>Pro Monthly ပါ လုပ်ဆောင်ချက်အားလုံး</strong></span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                        <span><strong>Dedicated VIP Server</strong> - သီးသန့် မြန်နှုန်းမြင့် ဆာဗာ</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                        <span><strong>VIP Direct Admin Support</strong> - ၂၄ နာရီ ကူညီဆောင်ရွက်မှု</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                        <span><strong>New Feature Early Access</strong> - နောက်ဆုံး Feature များ ဦးစွာရရှိခြင်း</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-white/10 text-center">
-                    <span className="text-xs font-semibold text-indigo-300">
-                      {selectedPlan === 'pro_annual' ? '✓ ရွေးချယ်ထားပါသည်' : 'ရွေးချယ်မည်'}
-                    </span>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* KBZPay & WavePay Payment Box temporarily hidden as requested */}
-            <div className="p-4 rounded-2xl bg-slate-900/60 border border-white/10 flex items-center justify-between gap-3 text-xs text-slate-400 font-burmese">
-              <div className="flex items-center gap-2">
-                <Crown className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>VIP Subscription Upgrade စနစ်အား ခေတ္တ ပြင်ဆင်နေပါသည် (Coming Soon)</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleToggleInstantVip('active_vip')}
-                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer transition-all shrink-0"
+            {/* ------------------------------------------------------------------------- */}
+            {/* PAYMENT INTEGRATION: DIRECTLY UPDATES BASED ON SELECTED CARD */}
+            {/* ------------------------------------------------------------------------- */}
+            {selectedPlanData.isPaid ? (
+              <div
+                id="payment-summary-section"
+                className="p-5 rounded-2xl bg-gradient-to-br from-slate-900/95 via-slate-900/80 to-slate-950 border border-amber-500/40 shadow-2xl space-y-5 animate-fadeIn"
               >
-                👑 Instant VIP စမ်းသပ်မည်
-              </button>
-            </div>
+                {/* 1. Dynamic Payment Summary Header */}
+                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="w-5 h-5 text-amber-400" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-amber-400 font-mono">
+                        Selected Plan Summary
+                      </span>
+                    </div>
+                    <div className="text-base font-bold text-white font-burmese">
+                      {selectedPlanData.nameEnglish} ({selectedPlanData.nameBurmese}) &bull; {selectedPlanData.priceDisplay}
+                    </div>
+                    <div className="text-xs text-slate-300 font-burmese">
+                      {selectedPlanData.limitDescription} + မြန်မာ AI အသံ ၄၀ မျိုး အပြည့်အစုံ
+                    </div>
+                  </div>
+
+                  <div className="text-right sm:text-right bg-slate-950/80 px-4 py-2 rounded-xl border border-white/10 shrink-0">
+                    <div className="text-[11px] text-slate-400 font-burmese">ပေးသွင်းရမည့် ငွေပမာဏ:</div>
+                    <div className="text-xl font-extrabold text-amber-300 font-sans">
+                      {selectedPlanData.priceMmk.toLocaleString()} MMK
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Payment Method Selector (KBZPay / WavePay) */}
+                <div className="space-y-3">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 font-burmese">
+                    ငွေပေးချေမည့် နည်းလမ်း ရွေးချယ်ပါ (Payment Method):
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* KBZPay Tab */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPaymentMethod('kpay')}
+                      className={`p-3 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
+                        selectedPaymentMethod === 'kpay'
+                          ? 'bg-blue-950/60 border-blue-500 shadow-md ring-1 ring-blue-500/40 text-white'
+                          : 'bg-slate-950/60 border-white/10 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 text-left">
+                        <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white text-xs">
+                          KPay
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-white">KBZPay (KPay)</div>
+                          <div className="text-[11px] text-slate-400 font-mono">09-952458992</div>
+                        </div>
+                      </div>
+                      {selectedPaymentMethod === 'kpay' && <CheckCircle className="w-4 h-4 text-blue-400" />}
+                    </button>
+
+                    {/* WavePay Tab */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPaymentMethod('wavepay')}
+                      className={`p-3 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
+                        selectedPaymentMethod === 'wavepay'
+                          ? 'bg-amber-950/60 border-amber-500 shadow-md ring-1 ring-amber-500/40 text-white'
+                          : 'bg-slate-950/60 border-white/10 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 text-left">
+                        <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center font-extrabold text-black text-xs">
+                          Wave
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-white">WavePay</div>
+                          <div className="text-[11px] text-slate-400 font-mono">09-952458992</div>
+                        </div>
+                      </div>
+                      {selectedPaymentMethod === 'wavepay' && <CheckCircle className="w-4 h-4 text-amber-400" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Account Number & Transfer Details */}
+                <div className="p-4 rounded-xl bg-slate-950 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="text-[11px] text-slate-400 font-burmese">
+                      {selectedPaymentMethod === 'kpay' ? 'KBZPay' : 'WavePay'} လက်ခံမည့် အကောင့်:
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-base sm:text-lg font-mono font-bold text-white tracking-wider">
+                        09-952458992
+                      </span>
+                      <span className="text-xs text-amber-400 font-burmese font-semibold">
+                        (ဦးသီဟအောင် / U Thiha Aung)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText('09952458992', selectedPaymentMethod === 'kpay' ? 'kpay' : 'wave')}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-white/10 flex items-center gap-1.5 cursor-pointer transition-all"
+                    >
+                      {(selectedPaymentMethod === 'kpay' ? copiedKpay : copiedWave) ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-400 font-burmese">Copy ကူးပြီး</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="font-burmese">နံပါတ် Copy ကူးမည်</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowQrModal(true)}
+                      className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium border border-amber-500/30 flex items-center gap-1.5 cursor-pointer transition-all"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span className="font-burmese">QR Code ကြည့်မည်</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 4. Payment Slip & Verification Form */}
+                <form onSubmit={handleSubmitVerification} className="space-y-4 pt-2 border-t border-white/10">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Customer Phone */}
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-300 font-burmese">
+                        ငွေလွှဲသူ ဖုန်းနံပါတ် (Sender Phone):
+                      </label>
+                      <input
+                        type="text"
+                        value={customerPhone}
+                        onChange={(e) => setCustomerPhone(e.target.value)}
+                        placeholder="e.g. 09-XXXXXXXXX"
+                        className="w-full text-xs px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                      />
+                    </div>
+
+                    {/* Transaction ID / Ref */}
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-300 font-burmese">
+                        Transaction ID သို့မဟုတ် နောက်ဆုံး ၆ လုံး:
+                      </label>
+                      <input
+                        type="text"
+                        value={transactionRef}
+                        onChange={(e) => setTransactionRef(e.target.value)}
+                        placeholder="e.g. 984521 သို့မဟုတ် 1029384756"
+                        className="w-full text-xs px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Payment Slip Upload Box */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-300 font-burmese">
+                      ငွေလွှဲပြေစာ Screenshot တင်ရန် (Payment Slip Screenshot):
+                    </label>
+
+                    <div className="border-2 border-dashed border-white/20 hover:border-amber-500/50 rounded-2xl p-4 text-center bg-slate-950/60 transition-all relative">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleSlipFileChange}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+
+                      {slipPreviewUrl ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <img
+                            src={slipPreviewUrl}
+                            alt="Slip Preview"
+                            className="max-h-36 rounded-lg border border-white/20 object-contain shadow-md"
+                          />
+                          <span className="text-xs text-emerald-400 font-burmese flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>ပြေစာပုံ ထည့်သွင်းပြီးပါပြီ (ပုံပြောင်းရန် နှိပ်ပါ)</span>
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-1.5 py-2">
+                          <Upload className="w-6 h-6 text-amber-400" />
+                          <span className="text-xs text-slate-200 font-burmese font-medium">
+                            ငွေလွှဲပြေစာ Screenshot ပုံကို ဤနေရာတွင် နှိပ်၍ ရွေးချယ်ပါ
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            PNG, JPG သို့မဟုတ် JPEG Format
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {submitSuccessMsg && (
+                    <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-burmese flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>{submitSuccessMsg}</span>
+                    </div>
+                  )}
+
+                  {/* Submit Slip Button */}
+                  <div className="flex items-center justify-between pt-2">
+                    <div className="text-[11px] text-slate-400 font-burmese">
+                      * ငွေလွှဲပြီးပါက ၁၀-၃၀ မိနစ်အတွင်း VIP အလိုအလျောက် ပွင့်ပါမည်
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingSlip}
+                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs shadow-lg shadow-amber-500/25 transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {isSubmittingSlip ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span className="font-burmese">ပေးပို့နေပါသည်...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span className="font-burmese">
+                            {selectedPlanData.priceDisplay} ဖြင့် VIP စာရင်းသွင်းမည်
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              /* Tier 0 Free Plan Active Info Card */
+              <div className="p-4 rounded-2xl bg-slate-900/60 border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-300 font-burmese">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-950/80 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-white">Tier 0: Free Plan (အခမဲ့ စမ်းသပ်ခြင်း)</div>
+                    <div className="text-slate-400 text-[11px]">
+                      တစ်ရက်လျှင် ၂ ပုဒ် အခမဲ့ ပြုလုပ်ခွင့် ရရှိထားပါသည်။ နေ့စဉ် အလိုအလျောက် Auto Reset ပြုလုပ်ပေးပါသည်။
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPlanId('standard')}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer transition-all shrink-0"
+                >
+                  အစီအစဉ်များ အဆင့်မြှင့်တင်ရန် နှိပ်ပါ
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -807,7 +1112,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
         {/* Footer / Done Button */}
         <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
           <div className="text-[11px] text-slate-500 font-mono">
-            pY Channel AI Recap Studio v2.5
+            pY Channel AI Recap Studio &bull; Version 3.0
           </div>
           <button
             onClick={onClose}
@@ -817,6 +1122,49 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* QR Code Modal */}
+      {showQrModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-fadeIn">
+          <div className="glass-panel p-6 rounded-3xl bg-slate-950 border border-white/20 max-w-sm w-full text-center space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white font-burmese">
+                {selectedPaymentMethod === 'kpay' ? 'KBZPay' : 'WavePay'} QR Code
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowQrModal(false)}
+                className="p-1 rounded-lg bg-slate-900 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 bg-white rounded-2xl inline-block shadow-xl">
+              {/* QR Code SVG / Visual */}
+              <div className="w-48 h-48 flex flex-col items-center justify-center bg-slate-100 rounded-xl p-2 text-slate-900">
+                <QrCode className="w-32 h-32 text-slate-900" />
+                <span className="text-[11px] font-mono font-bold mt-1">09-952458992</span>
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-300 font-burmese">
+              <div className="font-bold text-amber-400">ဦးသီဟအောင် (U Thiha Aung)</div>
+              <div className="text-slate-400 mt-1">
+                ပေးသွင်းရမည့် ငွေပမာဏ: <span className="text-white font-bold">{selectedPlanData.priceDisplay}</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowQrModal(false)}
+              className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs border border-white/10"
+            >
+              ပိတ်မည် (Close)
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

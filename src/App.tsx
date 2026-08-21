@@ -55,9 +55,9 @@ export default function App() {
     return {
       status: 'free',
       planId: 'free',
-      planName: 'Free Plan (3 Generations Left)',
-      freeGenerationsRemaining: 3,
-      maxFreeGenerations: 3,
+      planName: 'Free Plan (အခမဲ့ စမ်းသပ်ခြင်း)',
+      dailyFreeRemaining: 2,
+      maxDailyFree: 2,
     };
   });
 
@@ -508,13 +508,15 @@ export default function App() {
         usedCredits={usedCredits}
         totalCredits={totalCredits}
         vipInfo={vipInfo}
+        hasAssemblyKey={Boolean(userAssemblyKey && userAssemblyKey.trim().length > 5)}
+        hasGeminiKey={Boolean(userGeminiKey && userGeminiKey.trim().length > 10)}
         onOpenSettings={handleOpenUserSettings}
         onOpenAdminPortal={() => setIsAdminPortalOpen(true)}
         isAdminAuthenticated={isAdminAuthenticated}
       />
 
       {/* Main Studio Body - Full 4-Step User Workflow */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6">
         {/* Step Indicator Breadcrumb Bar */}
         <StepIndicator
           currentStep={currentStep}
@@ -537,6 +539,8 @@ export default function App() {
             videoFileName={videoFileName}
             isExtractingAudio={isExtractingAudio}
             extractionProgress={extractionProgress}
+            assemblyApiKey={userAssemblyKey}
+            onSaveAssemblyKey={handleSaveUserAssemblyKey}
             onFileUpload={handleFileUpload}
             onStartAudioExtraction={handleStartAudioExtraction}
             onChangeFile={handleChangeFile}
@@ -554,7 +558,7 @@ export default function App() {
             isModalOpen={isTranslationModalOpen}
             onOpenModal={() => setIsTranslationModalOpen(true)}
             onCloseModal={() => setIsTranslationModalOpen(false)}
-            geminiApiKey={userGeminiKey || adminConfig.geminiMasterKey}
+            geminiApiKey={userGeminiKey}
             onSaveGeminiKey={handleSaveUserGeminiKey}
           />
         )}
@@ -626,12 +630,12 @@ export default function App() {
       />
 
       {/* Footer with subtle Admin trigger link */}
-      <footer className="border-t border-white/5 py-4 px-4 text-center text-xs text-slate-500 font-mono flex flex-col sm:flex-row items-center justify-between max-w-7xl mx-auto w-full">
+      <footer className="border-t border-white/5 py-4 px-4 text-center text-xs text-slate-500 font-mono flex flex-col sm:flex-row items-center justify-between max-w-7xl mx-auto w-full gap-2">
         <span>pY Channel AI Movie Recap Studio &bull; Version 3.0</span>
         <button
           type="button"
           onClick={() => setIsAdminPortalOpen(true)}
-          className="text-slate-600 hover:text-amber-400 text-[11px] transition-colors cursor-pointer pt-1 sm:pt-0"
+          className="text-slate-600 hover:text-amber-400 text-[11px] transition-colors cursor-pointer"
         >
           [Admin Master Control]
         </button>

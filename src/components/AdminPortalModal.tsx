@@ -755,6 +755,15 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                             <div className="space-y-1 font-burmese">
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-white font-sans">{r.userEmail}</span>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/40">
+                                  {r.planId === 'unlimited_pro'
+                                    ? 'Tier 3: Unlimited Pro'
+                                    : r.planId === 'standard'
+                                    ? 'Tier 2: Standard'
+                                    : r.planId === 'basic'
+                                    ? 'Tier 1: Basic'
+                                    : 'Tier 0: Free'}
+                                </span>
                                 <span
                                   className={`px-2 py-0.5 rounded-full text-[10px] font-mono uppercase ${
                                     r.status === 'approved'

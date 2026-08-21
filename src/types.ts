@@ -48,12 +48,33 @@ export type StudioMode = 'manual' | 'auto';
 
 export type VipStatus = 'free' | 'pending' | 'active_vip';
 
+export type PlanTierId = 'free' | 'basic' | 'standard' | 'unlimited_pro';
+
+export interface PricingPlan {
+  id: PlanTierId;
+  tierNumber: 0 | 1 | 2 | 3;
+  nameBurmese: string;
+  nameEnglish: string;
+  priceMmk: number;
+  priceDisplay: string;
+  priceFormattedNumber: string;
+  billingCycle: string;
+  limitDescription: string;
+  badge?: string;
+  features: string[];
+  isPaid: boolean;
+  recapLimit: number; // 2 for free daily, 30 for basic, 70 for standard, 99999 for unlimited
+  periodType: 'daily' | 'monthly' | 'unlimited';
+}
+
 export interface VipSubscriptionInfo {
   status: VipStatus;
-  planId: 'free' | 'pro_monthly' | 'pro_annual';
+  planId: PlanTierId;
   planName: string;
-  freeGenerationsRemaining: number;
-  maxFreeGenerations: number;
+  dailyFreeRemaining?: number;
+  maxDailyFree?: number;
+  monthlyRemaining?: number;
+  maxMonthlyLimit?: number;
   submittedAt?: string;
   approvedAt?: string;
   expiresAt?: string;
@@ -68,7 +89,7 @@ export interface PaymentVerificationRequest {
   customerPhone: string;
   transactionRef: string;
   paymentMethod: 'kpay' | 'wavepay';
-  planId: 'pro_monthly' | 'pro_annual';
+  planId: PlanTierId;
   amountMmk: number;
   slipImageUrl?: string;
   submittedAt: string;

@@ -1,0 +1,88 @@
+import { PricingPlan, PlanTierId } from '../types';
+
+export const PRICING_PLANS: PricingPlan[] = [
+  {
+    id: 'free',
+    tierNumber: 0,
+    nameBurmese: 'အခမဲ့ စမ်းသပ်ခြင်း',
+    nameEnglish: 'Free Plan',
+    priceMmk: 0,
+    priceDisplay: 'အခမဲ့',
+    priceFormattedNumber: '0',
+    billingCycle: 'တစ်ရက်လျှင် ၂ ပုဒ်',
+    limitDescription: 'တစ်ရက်လျှင် ၂ ပုဒ် အခမဲ့ ပြုလုပ်ခွင့် (Daily 2 Free Recaps)',
+    features: [
+      'တစ်ရက်လျှင် ၂ ပုဒ် အခမဲ့ ပြုလုပ်ခွင့် (Daily 2 Free Recaps)',
+      'Daily automatic reset (နေ့စဉ် Reset)',
+      'မြန်မာ AI အသံများ စမ်းသပ်ခွင့်',
+    ],
+    isPaid: false,
+    recapLimit: 2,
+    periodType: 'daily',
+  },
+  {
+    id: 'basic',
+    tierNumber: 1,
+    nameBurmese: 'အခြေခံ အစီအစဉ်',
+    nameEnglish: 'Basic Plan',
+    priceMmk: 5000,
+    priceDisplay: '၅,၀၀၀ ကျပ် / တစ်လ',
+    priceFormattedNumber: '၅,၀၀၀',
+    billingCycle: 'တစ်လ',
+    limitDescription: 'တစ်လလျှင် ဗီဒီယို အပုဒ် ၃၀ အထိ ထုတ်ယူခွင့် (30 Recaps / Month)',
+    features: [
+      'တစ်လလျှင် ဗီဒီယို အပုဒ် ၃၀ အထိ ထုတ်ယူခွင့် (30 Recaps / Month)',
+      'မြန်မာ AI အသံ ၄၀ စလုံး အသုံးပြုခွင့်',
+      'Watermark မပါဝင်ခြင်း (No Watermark)',
+    ],
+    isPaid: true,
+    recapLimit: 30,
+    periodType: 'monthly',
+  },
+  {
+    id: 'standard',
+    tierNumber: 2,
+    nameBurmese: 'လူကြိုက်အများဆုံး အစီအစဉ်',
+    nameEnglish: 'Standard Plan',
+    badge: '🌟 လူကြိုက်အများဆုံး (Most Popular)',
+    priceMmk: 10000,
+    priceDisplay: '၁၀,၀၀၀ ကျပ် / တစ်လ',
+    priceFormattedNumber: '၁၀,၀၀၀',
+    billingCycle: 'တစ်လ',
+    limitDescription: 'တစ်လလျှင် ဗီဒီယို အပုဒ် ၇၀ အထိ ထုတ်ယူခွင့် (70 Recaps / Month)',
+    features: [
+      'တစ်လလျှင် ဗီဒီယို အပုဒ် ၇၀ အထိ ထုတ်ယူခွင့် (70 Recaps / Month)',
+      'မြန်မာ AI အသံ ၄၀ စလုံး အပြည့်အစုံ',
+      'Fast Rendering (မြန်ဆန်သော Render စနစ်)',
+      'HD 1080p Video Export',
+    ],
+    isPaid: true,
+    recapLimit: 70,
+    periodType: 'monthly',
+  },
+  {
+    id: 'unlimited_pro',
+    tierNumber: 3,
+    nameBurmese: 'စိတ်ကြိုက် အကန့်အသတ်မရှိ (VIP Elite)',
+    nameEnglish: 'Unlimited Pro Plan',
+    badge: '👑 စိတ်ကြိုက် အကန့်အသတ်မရှိ',
+    priceMmk: 20000,
+    priceDisplay: '၂၀,၀၀၀ ကျပ် / တစ်လ',
+    priceFormattedNumber: '၂၀,၀၀၀',
+    billingCycle: 'တစ်လ',
+    limitDescription: 'တစ်လလုံး စိတ်ကြိုက် ဗီဒီယို အကန့်အသတ်မရှိ ထုတ်ယူခွင့် (Unlimited Recaps)',
+    features: [
+      'တစ်လလုံး စိတ်ကြိုက် ဗီဒီယို အကန့်အသတ်မရှိ ထုတ်ယူခွင့် (Unlimited Recaps)',
+      'မြန်မာ AI အသံ ၄၀ စလုံး အပြည့်အစုံ',
+      'အမြန်ဆုံး 1080p 60fps Render',
+      'VIP Priority Support & Server Processing',
+    ],
+    isPaid: true,
+    recapLimit: 999999,
+    periodType: 'unlimited',
+  },
+];
+
+export function getPlanById(id: PlanTierId): PricingPlan {
+  return PRICING_PLANS.find((p) => p.id === id) || PRICING_PLANS[0];
+}

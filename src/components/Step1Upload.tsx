@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   Upload,
   RefreshCw,
@@ -11,6 +11,13 @@ import {
   Mic2,
   Layers,
   ArrowRight,
+  KeyRound,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  ShieldCheck,
+  ExternalLink,
 } from 'lucide-react';
 
 interface Step1UploadProps {
@@ -20,6 +27,8 @@ interface Step1UploadProps {
   videoFileName: string;
   isExtractingAudio: boolean;
   extractionProgress: number;
+  assemblyApiKey?: string;
+  onSaveAssemblyKey?: (key: string) => void;
   onFileUpload: (file: File) => void;
   onStartAudioExtraction: () => void;
   onChangeFile: () => void;
@@ -31,13 +40,32 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
   videoFileName,
   isExtractingAudio,
   extractionProgress,
+  assemblyApiKey = '',
+  onSaveAssemblyKey,
   onFileUpload,
   onStartAudioExtraction,
   onChangeFile,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const keyInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Local AssemblyAI Key input state
+  const [localKey, setLocalKey] = useState(assemblyApiKey);
+  const [showKey, setShowKey] = useState(false);
+  const [keyStatusMsg, setKeyStatusMsg] = useState('');
+  const [isEditingKey, setIsEditingKey] = useState(false);
+  const [missingKeyAlert, setMissingKeyAlert] = useState(false);
+
+  const hasKey = Boolean(assemblyApiKey && assemblyApiKey.trim().length > 5);
+
+  useEffect(() => {
+    setLocalKey(assemblyApiKey);
+    if (assemblyApiKey && assemblyApiKey.trim().length > 5) {
+      setMissingKeyAlert(false);
+    }
+  }, [assemblyApiKey]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -62,9 +90,37 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
     }
   };
 
+  const handleSaveKey = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = localKey.trim();
+    if (!clean) {
+      setKeyStatusMsg('ကျေးဇူးပြု၍ AssemblyAI API Key ထည့်သွင်းပေးပါ');
+      return;
+    }
+    if (onSaveAssemblyKey) {
+      onSaveAssemblyKey(clean);
+    }
+    setKeyStatusMsg('✓ AssemblyAI Key သိမ်းဆည်းပြီးပါပြီ');
+    setIsEditingKey(false);
+    setMissingKeyAlert(false);
+    setTimeout(() => setKeyStatusMsg(''), 3500);
+  };
+
+  const handleExtractClick = () => {
+    if (!hasKey && (!localKey || localKey.trim().length < 5)) {
+      setMissingKeyAlert(true);
+      setIsEditingKey(true);
+      setTimeout(() => {
+        keyInputRef.current?.focus();
+      }, 100);
+      return;
+    }
+    setMissingKeyAlert(false);
+    onStartAudioExtraction();
+  };
+
   // Sample demo video loader for quick testing
-  const handleLoadSampleVideo = async (sampleName: string, durationSec: number) => {
-    // Create a mock video file for smooth demo testing
+  const handleLoadSampleVideo = async (sampleName: string) => {
     const sampleBlob = new Blob(['sample-video-content'], { type: 'video/mp4' });
     const sampleFile = new File([sampleBlob], `${sampleName}.mp4`, { type: 'video/mp4' });
     onFileUpload(sampleFile);
@@ -162,7 +218,7 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => handleLoadSampleVideo('action_heist_scene_1080p', 12)}
+                onClick={() => handleLoadSampleVideo('action_heist_scene_1080p')}
                 className="p-3.5 rounded-xl bg-slate-900/80 hover:bg-amber-950/40 border border-white/10 hover:border-amber-500/40 text-left transition-all cursor-pointer flex items-center justify-between group"
               >
                 <div className="flex items-center gap-3">
@@ -183,7 +239,7 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleLoadSampleVideo('scifi_trailer_recap_4k', 15)}
+                onClick={() => handleLoadSampleVideo('scifi_trailer_recap_4k')}
                 className="p-3.5 rounded-xl bg-slate-900/80 hover:bg-amber-950/40 border border-white/10 hover:border-amber-500/40 text-left transition-all cursor-pointer flex items-center justify-between group"
               >
                 <div className="flex items-center gap-3">
@@ -251,7 +307,7 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
           </div>
 
           {/* ========================================================================= */}
-          {/* INSERTED: Audio Extraction & Transcription Engine Card (ဗီဒီယို အောက်တွင် အစားထိုးရန်) */}
+          {/* Audio Extraction & Transcription Engine Card with BYOK AssemblyAI Setup */}
           {/* ========================================================================= */}
           <div className="glass-panel p-6 sm:p-7 rounded-2xl border border-amber-500/30 bg-slate-950/90 shadow-2xl shadow-amber-500/10 space-y-6 relative overflow-hidden">
             {/* Subtle background glow accent */}
@@ -294,6 +350,123 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
               </div>
             </div>
 
+            {/* ========================================================================= */}
+            {/* Bring-Your-Own-Key (BYOK) AssemblyAI Setup Box */}
+            {/* ========================================================================= */}
+            <div className="p-4 sm:p-5 rounded-xl bg-slate-900/90 border border-amber-500/30 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-amber-400" />
+                  <span className="text-xs sm:text-sm font-bold text-white font-sans">
+                    AssemblyAI API Key Setup
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-white/10">
+                    [Local Storage]
+                  </span>
+                </div>
+
+                {hasKey && !isEditingKey ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-medium text-emerald-300 bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/40 flex items-center gap-1 font-burmese">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      Key အသင့်ရှိပါသည်
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingKey(true)}
+                      className="text-xs text-slate-400 hover:text-amber-300 underline font-burmese cursor-pointer"
+                    >
+                      ပြင်ဆင်ရန်
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-[11px] font-medium text-amber-300 bg-amber-950/80 px-2.5 py-1 rounded-lg border border-amber-500/40 flex items-center gap-1 font-burmese">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                    Key ထည့်သွင်းရန် လိုအပ်ပါသည်
+                  </span>
+                )}
+              </div>
+
+              {/* Missing Key Warning Alert */}
+              {missingKeyAlert && (
+                <div className="p-3 rounded-xl bg-red-950/80 border border-red-500/50 flex items-center gap-2 text-red-200 text-xs font-burmese animate-fadeIn">
+                  <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                  <span className="font-semibold">
+                    ကျေးဇူးပြု၍ သင်၏ AssemblyAI API Key ကို အရင် ထည့်သွင်းပေးပါ (အောက်ပါ Input တွင် ရိုက်ထည့်ပြီး Save Key နှိပ်ပါ)
+                  </span>
+                </div>
+              )}
+
+              {/* Key Input Box (Visible if no key or in editing mode) */}
+              {(!hasKey || isEditingKey) && (
+                <form onSubmit={handleSaveKey} className="space-y-2 pt-1">
+                  <div className="relative">
+                    <input
+                      ref={keyInputRef}
+                      id="step1-assembly-key-input"
+                      type={showKey ? 'text' : 'password'}
+                      value={localKey}
+                      onChange={(e) => {
+                        setLocalKey(e.target.value);
+                        setMissingKeyAlert(false);
+                      }}
+                      placeholder="Enter your AssemblyAI API Key (e.g. 7f98d41...)"
+                      className="w-full pl-3.5 pr-20 py-2.5 rounded-xl bg-slate-950/90 border border-amber-500/40 focus:border-amber-400 text-xs sm:text-sm font-mono text-amber-200 placeholder-slate-500 focus:outline-none shadow-inner"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey(!showKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-1"
+                    >
+                      {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <a
+                      href="https://www.assemblyai.com/dashboard/signup"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-amber-400 hover:text-amber-300 hover:underline flex items-center gap-1 font-burmese"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>AssemblyAI Free Key ရယူရန် (Get Free Key) &rarr;</span>
+                    </a>
+
+                    <div className="flex items-center gap-2">
+                      {isEditingKey && hasKey && (
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingKey(false)}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs hover:bg-slate-700 font-burmese"
+                        >
+                          မပြောင်းတော့ပါ
+                        </button>
+                      )}
+                      <button
+                        type="submit"
+                        className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Save Key</span>
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              )}
+
+              {keyStatusMsg && (
+                <p className="text-xs text-emerald-400 font-burmese flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{keyStatusMsg}</span>
+                </p>
+              )}
+
+              <p className="text-[11px] text-slate-400 font-burmese">
+                🔒 API Key ကို သင့် Browser ၏ LocalStorage ထဲတွင်သာ လုံခြုံစွာ သီးသန့် သိမ်းဆည်းပေးထားပါသည်။
+              </p>
+            </div>
+
             {/* Progress Bar when extracting */}
             {isExtractingAudio && (
               <div className="space-y-3 p-4 sm:p-5 rounded-2xl bg-slate-900/90 border border-amber-500/40 shadow-inner animate-fadeIn">
@@ -331,7 +504,7 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
                 id="step-1-extract-audio-btn"
                 type="button"
                 disabled={isExtractingAudio}
-                onClick={onStartAudioExtraction}
+                onClick={handleExtractClick}
                 className="w-full py-4 sm:py-4.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:via-orange-400 hover:to-amber-500 text-slate-950 font-black text-base sm:text-lg tracking-wide shadow-2xl shadow-amber-500/40 border border-amber-300/60 flex items-center justify-center gap-3 cursor-pointer transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed group"
               >
                 {isExtractingAudio ? (
@@ -353,3 +526,4 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
     </div>
   );
 };
+
