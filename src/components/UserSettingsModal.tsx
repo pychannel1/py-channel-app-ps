@@ -16,20 +16,13 @@ import {
   QrCode,
   Copy,
   Check,
-  ArrowRight,
-  Zap,
-  Star,
   Clock,
   FileCheck,
-  Smartphone,
   Info,
-  CheckCircle,
-  HelpCircle,
-  Flame,
-  Layers,
-  Infinity,
+  Star,
+  Zap,
 } from 'lucide-react';
-import { VipSubscriptionInfo, VipStatus, PlanTierId } from '../types';
+import { VipSubscriptionInfo, PlanTierId, PaymentVerificationRequest } from '../types';
 import { PRICING_PLANS, getPlanById } from '../data/pricingPlans';
 
 interface UserSettingsModalProps {
@@ -42,6 +35,7 @@ interface UserSettingsModalProps {
   onSaveGeminiKey: (key: string) => void;
   vipInfo: VipSubscriptionInfo;
   onUpdateVipInfo: (info: VipSubscriptionInfo) => void;
+  onNewVerificationRequest?: (request: PaymentVerificationRequest) => void;
   userEmail: string;
 }
 
@@ -55,6 +49,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   onSaveGeminiKey,
   vipInfo,
   onUpdateVipInfo,
+  onNewVerificationRequest,
   userEmail,
 }) => {
   const [activeTab, setActiveTab] = useState<'api' | 'vip'>(initialTab);
@@ -113,7 +108,6 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   const [selectedPlanId, setSelectedPlanId] = useState<PlanTierId>(
     vipInfo.planId && vipInfo.planId !== 'free' ? vipInfo.planId : 'standard'
   );
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'kpay' | 'wavepay'>('kpay');
   const [slipFile, setSlipFile] = useState<File | null>(null);
   const [slipPreviewUrl, setSlipPreviewUrl] = useState<string | null>(vipInfo.slipImage || null);
   const [transactionRef, setTransactionRef] = useState<string>(vipInfo.transactionRef || '');
@@ -121,7 +115,6 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   const [isSubmittingSlip, setIsSubmittingSlip] = useState(false);
   const [submitSuccessMsg, setSubmitSuccessMsg] = useState('');
   const [copiedKpay, setCopiedKpay] = useState(false);
-  const [copiedWave, setCopiedWave] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
 
   const selectedPlanData = getPlanById(selectedPlanId);
@@ -172,7 +165,6 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
         setAssemblyMsg('AssemblyAI Key မမှန်ကန်ပါ။ Token ကို ပြန်လည်စစ်ဆေးပါ။');
       }
     } catch {
-      // Local fallback
       setAssemblyStatus('success');
       setAssemblyMsg('✓ AssemblyAI API Key သိမ်းဆည်းပြီးပါပြီ');
       onSaveAssemblyKey(cleanKey);
@@ -236,21 +228,18 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
     }
   };
 
-  const handleCopyText = (text: string, type: 'kpay' | 'wave') => {
-    navigator.clipboard.writeText(text);
-    if (type === 'kpay') {
-      setCopiedKpay(true);
-      setTimeout(() => setCopiedKpay(false), 2000);
-    } else {
-      setCopiedWave(true);
-      setTimeout(() => setCopiedWave(false), 2000);
-    }
+  const handleCopyKPayNumber = () => {
+    navigator.clipboard.writeText('09778948352');
+    setCopiedKpay(true);
+    setTimeout(() => setCopiedKpay(false), 2000);
   };
 
   const handleSubmitVerification = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!slipPreviewUrl && !transactionRef.trim()) {
-      alert('ကျေးဇူးပြု၍ ငွေလွှဲပြေစာ Screenshot သို့မဟုတ် Transaction ID / နောက်ဆုံး ၆ လုံး ထည့်သွင်းပေးပါ');
+    const cleanRef = transactionRef.trim();
+
+    if (!slipPreviewUrl && !cleanRef) {
+      alert('ကျေးဇူးပြု၍ ငွေလွှဲပြေစာ Screenshot ပုံ သို့မဟုတ် Transaction ID ၏ နောက်ဆုံး ၄ လုံး ထည့်သွင်းပေးပါ');
       return;
     }
 
@@ -260,6 +249,8 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
     setTimeout(() => {
       setIsSubmittingSlip(false);
       const plan = getPlanById(selectedPlanId);
+      const lastDigits = cleanRef.length > 4 ? cleanRef.slice(-4) : cleanRef || `${Math.floor(1000 + Math.random() * 9000)}`;
+
       const updatedInfo: VipSubscriptionInfo = {
         status: 'pending',
         planId: selectedPlanId,
@@ -269,44 +260,34 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
         monthlyRemaining: plan.recapLimit,
         maxMonthlyLimit: plan.recapLimit,
         submittedAt: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        transactionRef: transactionRef.trim() || `${selectedPaymentMethod.toUpperCase()}-${Math.floor(100000 + Math.random() * 900000)}`,
+        transactionRef: `KPay-${lastDigits}`,
         slipImage: slipPreviewUrl || undefined,
-        paymentMethod: selectedPaymentMethod,
+        paymentMethod: 'kpay',
       };
 
       onUpdateVipInfo(updatedInfo);
-      setSubmitSuccessMsg(`✓ ငွေလွှဲပြေစာ (${plan.priceDisplay}) အား ပေးပို့ပြီးပါပြီ။ Admin စိစစ်ပြီးပါက VIP စနစ်သို့ အလိုအလျောက် ဖွင့်လှစ်ပေးပါမည်။`);
-    }, 1200);
-  };
 
-  // Instant VIP Simulation (For Admin & User Testing)
-  const handleToggleInstantVip = (targetPlanId: PlanTierId) => {
-    const plan = getPlanById(targetPlanId);
-    if (targetPlanId === 'free') {
-      const updated: VipSubscriptionInfo = {
-        status: 'free',
-        planId: 'free',
-        planName: 'Free Plan (အခမဲ့ စမ်းသပ်ခြင်း)',
-        dailyFreeRemaining: 2,
-        maxDailyFree: 2,
+      // Create and dispatch real verification request into admin database
+      const newReq: PaymentVerificationRequest = {
+        id: `req-${Date.now()}`,
+        userEmail: userEmail || 'pychannel1years@gmail.com',
+        customerPhone: customerPhone.trim() || '09778948352',
+        transactionRef: `KPay-${lastDigits}`,
+        paymentMethod: 'kpay',
+        planId: selectedPlanId,
+        amountMmk: plan.priceMmk,
+        slipImageUrl: slipPreviewUrl || undefined,
+        submittedAt: new Date().toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }) + ' ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        status: 'pending',
       };
-      onUpdateVipInfo(updated);
-    } else {
-      const updated: VipSubscriptionInfo = {
-        status: 'active_vip',
-        planId: targetPlanId,
-        planName: `${plan.nameEnglish} (${plan.nameBurmese})`,
-        dailyFreeRemaining: 0,
-        maxDailyFree: 2,
-        monthlyRemaining: plan.recapLimit,
-        maxMonthlyLimit: plan.recapLimit,
-        approvedAt: 'ယခု',
-        expiresAt: 'ရက် ၃၀ ကျန်ရှိပါသည်',
-        transactionRef: `${selectedPaymentMethod.toUpperCase()}-AUTO-${Math.floor(1000 + Math.random() * 9000)}`,
-        paymentMethod: selectedPaymentMethod,
-      };
-      onUpdateVipInfo(updated);
-    }
+
+      onNewVerificationRequest?.(newReq);
+      setSubmitSuccessMsg('သင်၏ VIP လျှောက်ထားမှုကို စိစစ်နေပါသည် (၁၅ မိနစ်အတွင်း အတည်ပြုပေးပါမည်)');
+    }, 1000);
   };
 
   const isVipActive = vipInfo.status === 'active_vip';
@@ -365,7 +346,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                 Active VIP
               </span>
             ) : isVipPending ? (
-              <span className="text-[10px] bg-amber-950/90 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-mono font-bold">
+              <span className="text-[10px] bg-amber-950/90 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-mono font-bold animate-pulse">
                 Pending
               </span>
             ) : (
@@ -409,7 +390,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                 isVipActive
                   ? 'bg-gradient-to-br from-amber-950/40 via-slate-900/90 to-amber-900/30 border-amber-500/50 shadow-lg shadow-amber-500/10'
                   : isVipPending
-                  ? 'bg-gradient-to-br from-blue-950/40 via-slate-900/90 to-indigo-900/30 border-blue-500/50 shadow-lg shadow-blue-500/10'
+                  ? 'bg-gradient-to-br from-amber-950/40 via-slate-900/90 to-orange-950/30 border-amber-500/50 shadow-lg shadow-amber-500/10'
                   : 'bg-slate-900/80 border-white/10'
               }`}
             >
@@ -420,7 +401,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                       isVipActive
                         ? 'bg-gradient-to-tr from-amber-400 to-orange-500 text-black shadow-md shadow-amber-500/30'
                         : isVipPending
-                        ? 'bg-blue-600 text-white animate-pulse'
+                        ? 'bg-amber-500 text-black font-bold animate-pulse'
                         : 'bg-slate-800 text-slate-300'
                     }`}
                   >
@@ -443,8 +424,8 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                         </span>
                       )}
                       {isVipPending && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 border border-blue-400 text-blue-300 uppercase tracking-widest font-mono">
-                          ⏳ Pending Approval
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 border border-amber-400 text-amber-300 uppercase tracking-widest font-mono">
+                          ⏳ Pending Approval (စိစစ်ဆဲ)
                         </span>
                       )}
                       {!isVipActive && !isVipPending && (
@@ -458,46 +439,29 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                       {isVipActive
                         ? `👑 ${vipInfo.planName || 'VIP Active'}`
                         : isVipPending
-                        ? `⏳ ငွေလွှဲပြေစာ စိစစ်ဆဲဖြစ်ပါသည် (${vipInfo.planName})`
+                        ? `⏳ သင်၏ VIP လျှောက်ထားမှုကို စိစစ်နေပါသည် (၁၅ မိနစ်အတွင်း အတည်ပြုပေးပါမည်)`
                         : 'Tier 0: Free Plan (တစ်ရက်လျှင် ၂ ပုဒ် အခမဲ့)'}
                     </h3>
                     <p className="text-xs text-slate-300 font-burmese mt-0.5">
                       {isVipActive
                         ? 'ရုပ်ရှင်ရီကပ် ထုတ်ယူခွင့် အပြည့်အစုံနှင့် မြန်မာ AI အသံ ၄၀ မျိုး အသုံးပြုခွင့် ရရှိထားပါသည်'
                         : isVipPending
-                        ? 'Admin မှ ပြေစာစစ်ဆေးပြီးပါက ၁၀-၃၀ မိနစ်အတွင်း VIP စနစ် အလိုအလျောက် ဖွင့်ပေးပါမည်'
+                        ? 'ငွေလွှဲပြေစာအား Admin Master Control မှ စစ်ဆေးနေပါသည် (၁၅ မိနစ်အတွင်း အတည်ပြုပေးပါမည်)'
                         : 'အခမဲ့ စမ်းသပ်ခြင်းဖြင့် တစ်ရက်လျှင် ၂ ပုဒ် အခမဲ့ ပြုလုပ်ခွင့်ရရှိပြီး နေ့စဉ် အလိုအလျောက် Reset ပြုလုပ်ပေးပါသည်'}
                     </p>
                   </div>
                 </div>
 
-                {/* Instant Testing Simulator Control */}
-                <div className="flex items-center gap-2 self-end sm:self-center">
-                  {isVipActive ? (
-                    <button
-                      type="button"
-                      onClick={() => handleToggleInstantVip('free')}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 transition-all cursor-pointer"
-                    >
-                      Reset to Free
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleToggleInstantVip(selectedPlanId === 'free' ? 'standard' : selectedPlanId)}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-all cursor-pointer font-medium flex items-center gap-1.5"
-                      title="Instant VIP Testing Mode"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>Instant VIP Demo</span>
-                    </button>
-                  )}
-                </div>
+                {isVipPending && (
+                  <div className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-mono font-medium self-start sm:self-center">
+                    Ref: {vipInfo.transactionRef || 'Pending Slip'}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* ------------------------------------------------------------------------- */}
-            {/* NEW 4-TIER PRICING CARDS LAYOUT */}
+            {/* 4-TIER PRICING CARDS LAYOUT */}
             {/* ------------------------------------------------------------------------- */}
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -511,7 +475,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                   </p>
                 </div>
                 <span className="text-[11px] text-amber-400 font-mono font-bold bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-full">
-                  Special Rates ⚡
+                  Official Rate ⚡
                 </span>
               </div>
 
@@ -665,7 +629,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             </div>
 
             {/* ------------------------------------------------------------------------- */}
-            {/* PAYMENT INTEGRATION: DIRECTLY UPDATES BASED ON SELECTED CARD */}
+            {/* REAL KPAY PAYMENT DETAILS & SLIP SUBMISSION FORM */}
             {/* ------------------------------------------------------------------------- */}
             {selectedPlanData.isPaid ? (
               <div
@@ -697,112 +661,77 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                   </div>
                 </div>
 
-                {/* 2. Payment Method Selector (KBZPay / WavePay) */}
-                <div className="space-y-3">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 font-burmese">
-                    ငွေပေးချေမည့် နည်းလမ်း ရွေးချယ်ပါ (Payment Method):
-                  </label>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    {/* KBZPay Tab */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedPaymentMethod('kpay')}
-                      className={`p-3 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
-                        selectedPaymentMethod === 'kpay'
-                          ? 'bg-blue-950/60 border-blue-500 shadow-md ring-1 ring-blue-500/40 text-white'
-                          : 'bg-slate-950/60 border-white/10 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 text-left">
-                        <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white text-xs">
-                          KPay
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-white">KBZPay (KPay)</div>
-                          <div className="text-[11px] text-slate-400 font-mono">09-952458992</div>
+                {/* 2. Official KBZPay Payment Info Card */}
+                <div className="p-4 sm:p-5 rounded-2xl bg-blue-950/40 border border-blue-500/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white text-xs shadow-md shadow-blue-500/30">
+                        KPay
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-white">KBZPay (KPay) ငွေလွှဲရန် အချက်အလက်များ</div>
+                        <div className="text-[11px] text-blue-200 font-burmese">
+                          အောက်ပါ KPay အကောင့်သို့ ရွေးချယ်ထားသော Plan တန်ဖိုး ({selectedPlanData.priceMmk.toLocaleString()} MMK) လွှဲပေးပါရန်
                         </div>
                       </div>
-                      {selectedPaymentMethod === 'kpay' && <CheckCircle className="w-4 h-4 text-blue-400" />}
-                    </button>
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-900/80 text-blue-300 border border-blue-400/40 font-mono">
+                      Direct Gateway
+                    </span>
+                  </div>
 
-                    {/* WavePay Tab */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedPaymentMethod('wavepay')}
-                      className={`p-3 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
-                        selectedPaymentMethod === 'wavepay'
-                          ? 'bg-amber-950/60 border-amber-500 shadow-md ring-1 ring-amber-500/40 text-white'
-                          : 'bg-slate-950/60 border-white/10 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 text-left">
-                        <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center font-extrabold text-black text-xs">
-                          Wave
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-white">WavePay</div>
-                          <div className="text-[11px] text-slate-400 font-mono">09-952458992</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    {/* Account Name */}
+                    <div className="p-3 rounded-xl bg-slate-950/90 border border-white/10 space-y-1">
+                      <span className="text-[11px] text-slate-400 font-burmese">KPay အကောင့်ပိုင်ရှင် အမည် (Account Name):</span>
+                      <div className="text-sm font-bold text-white font-sans flex items-center gap-1.5">
+                        <span className="text-amber-400 font-extrabold">Min Zaw</span>
+                      </div>
+                    </div>
+
+                    {/* KPay Phone Number with Copy Button */}
+                    <div className="p-3 rounded-xl bg-slate-950/90 border border-blue-500/30 flex items-center justify-between gap-2">
+                      <div className="space-y-0.5">
+                        <span className="text-[11px] text-slate-400 font-burmese">KPay ဖုန်းနံပါတ် (Phone Number):</span>
+                        <div className="text-base font-mono font-bold text-amber-300 tracking-wider">
+                          09778948352
                         </div>
                       </div>
-                      {selectedPaymentMethod === 'wavepay' && <CheckCircle className="w-4 h-4 text-amber-400" />}
-                    </button>
+                      <button
+                        type="button"
+                        onClick={handleCopyKPayNumber}
+                        className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-all shadow-md shadow-blue-600/30 shrink-0"
+                      >
+                        {copiedKpay ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-200" />
+                            <span className="font-burmese">Copy ကူးပြီး</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 text-white" />
+                            <span className="font-burmese">📋 Copy Number</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                {/* 3. Account Number & Transfer Details */}
-                <div className="p-4 rounded-xl bg-slate-950 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="text-[11px] text-slate-400 font-burmese">
-                      {selectedPaymentMethod === 'kpay' ? 'KBZPay' : 'WavePay'} လက်ခံမည့် အကောင့်:
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-base sm:text-lg font-mono font-bold text-white tracking-wider">
-                        09-952458992
-                      </span>
-                      <span className="text-xs text-amber-400 font-burmese font-semibold">
-                        (ဦးသီဟအောင် / U Thiha Aung)
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleCopyText('09952458992', selectedPaymentMethod === 'kpay' ? 'kpay' : 'wave')}
-                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-white/10 flex items-center gap-1.5 cursor-pointer transition-all"
-                    >
-                      {(selectedPaymentMethod === 'kpay' ? copiedKpay : copiedWave) ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          <span className="text-emerald-400 font-burmese">Copy ကူးပြီး</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5 text-slate-400" />
-                          <span className="font-burmese">နံပါတ် Copy ကူးမည်</span>
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowQrModal(true)}
-                      className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium border border-amber-500/30 flex items-center gap-1.5 cursor-pointer transition-all"
-                    >
-                      <QrCode className="w-3.5 h-3.5" />
-                      <span className="font-burmese">QR Code ကြည့်မည်</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 4. Payment Slip & Verification Form */}
+                {/* 3. Slip Submission Form */}
                 <form onSubmit={handleSubmitVerification} className="space-y-4 pt-2 border-t border-white/10">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-200 font-burmese flex items-center gap-1.5">
+                      <FileCheck className="w-4 h-4 text-amber-400" />
+                      ငွေလွှဲပြေစာ ပေးပို့အတည်ပြုလွှာ (Slip Submission Form):
+                    </h4>
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Customer Phone */}
                     <div className="space-y-1.5">
                       <label className="block text-xs font-bold text-slate-300 font-burmese">
-                        ငွေလွှဲသူ ဖုန်းနံပါတ် (Sender Phone):
+                        ငွေလွှဲသူ ဖုန်းနံပါတ် (Sender Phone Number):
                       </label>
                       <input
                         type="text"
@@ -813,16 +742,17 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                       />
                     </div>
 
-                    {/* Transaction ID / Ref */}
+                    {/* Transaction ID / Last 4 Digits */}
                     <div className="space-y-1.5">
                       <label className="block text-xs font-bold text-slate-300 font-burmese">
-                        Transaction ID သို့မဟုတ် နောက်ဆုံး ၆ လုံး:
+                        KPay Transaction ID ၏ နောက်ဆုံး ၄ လုံး (Last 4 Digits):
                       </label>
                       <input
                         type="text"
+                        maxLength={20}
                         value={transactionRef}
                         onChange={(e) => setTransactionRef(e.target.value)}
-                        placeholder="e.g. 984521 သို့မဟုတ် 1029384756"
+                        placeholder="e.g. 8352 သို့မဟုတ် 10293848352"
                         className="w-full text-xs px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-500 font-mono"
                       />
                     </div>
@@ -847,7 +777,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                           <img
                             src={slipPreviewUrl}
                             alt="Slip Preview"
-                            className="max-h-36 rounded-lg border border-white/20 object-contain shadow-md"
+                            className="max-h-40 rounded-lg border border-white/20 object-contain shadow-md"
                           />
                           <span className="text-xs text-emerald-400 font-burmese flex items-center gap-1">
                             <CheckCircle2 className="w-3.5 h-3.5" />
@@ -855,13 +785,13 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                           </span>
                         </div>
                       ) : (
-                        <div className="flex flex-col items-center gap-1.5 py-2">
-                          <Upload className="w-6 h-6 text-amber-400" />
+                        <div className="flex flex-col items-center gap-1.5 py-3">
+                          <Upload className="w-7 h-7 text-amber-400" />
                           <span className="text-xs text-slate-200 font-burmese font-medium">
                             ငွေလွှဲပြေစာ Screenshot ပုံကို ဤနေရာတွင် နှိပ်၍ ရွေးချယ်ပါ
                           </span>
                           <span className="text-[11px] text-slate-500">
-                            PNG, JPG သို့မဟုတ် JPEG Format
+                            PNG, JPG သို့မဟုတ် JPEG Image File
                           </span>
                         </div>
                       )}
@@ -869,22 +799,27 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                   </div>
 
                   {submitSuccessMsg && (
-                    <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-burmese flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      <span>{submitSuccessMsg}</span>
+                    <div className="p-3.5 rounded-xl bg-amber-950/80 border border-amber-500/50 text-amber-200 text-xs font-burmese flex items-center gap-2.5 shadow-lg animate-fadeIn">
+                      <Clock className="w-5 h-5 text-amber-400 shrink-0 animate-spin" />
+                      <div>
+                        <strong>{submitSuccessMsg}</strong>
+                        <div className="text-[11px] text-amber-300/80 mt-0.5">
+                          Admin Master မှ စိစစ်အတည်ပြုပြီးပါက သင်၏ VIP Limit (30 / 70 / Unlimited) ချက်ချင်း ပွင့်သွားပါမည်။
+                        </div>
+                      </div>
                     </div>
                   )}
 
                   {/* Submit Slip Button */}
-                  <div className="flex items-center justify-between pt-2">
-                    <div className="text-[11px] text-slate-400 font-burmese">
-                      * ငွေလွှဲပြီးပါက ၁၀-၃၀ မိနစ်အတွင်း VIP အလိုအလျောက် ပွင့်ပါမည်
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                    <div className="text-[11px] text-slate-400 font-burmese text-center sm:text-left">
+                      * ပြေစာတင်ပြီးပါက Admin မှ ၁၅ မိနစ်အတွင်း စိစစ်ပြီး VIP စနစ် ဖွင့်ပေးပါမည်
                     </div>
 
                     <button
                       type="submit"
                       disabled={isSubmittingSlip}
-                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs shadow-lg shadow-amber-500/25 transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                      className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-xs shadow-lg shadow-amber-500/25 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
                     >
                       {isSubmittingSlip ? (
                         <>
@@ -895,7 +830,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                         <>
                           <CheckCircle2 className="w-4 h-4" />
                           <span className="font-burmese">
-                            {selectedPlanData.priceDisplay} ဖြင့် VIP စာရင်းသွင်းမည်
+                            ငွေလွှဲပြေစာ ပေးပို့အတည်ပြုမည် ({selectedPlanData.priceDisplay})
                           </span>
                         </>
                       )}
@@ -1129,7 +1064,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
           <div className="glass-panel p-6 rounded-3xl bg-slate-950 border border-white/20 max-w-sm w-full text-center space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-white font-burmese">
-                {selectedPaymentMethod === 'kpay' ? 'KBZPay' : 'WavePay'} QR Code
+                KBZPay QR Code
               </h3>
               <button
                 type="button"
@@ -1141,15 +1076,14 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             </div>
 
             <div className="p-4 bg-white rounded-2xl inline-block shadow-xl">
-              {/* QR Code SVG / Visual */}
               <div className="w-48 h-48 flex flex-col items-center justify-center bg-slate-100 rounded-xl p-2 text-slate-900">
                 <QrCode className="w-32 h-32 text-slate-900" />
-                <span className="text-[11px] font-mono font-bold mt-1">09-952458992</span>
+                <span className="text-[11px] font-mono font-bold mt-1">09778948352</span>
               </div>
             </div>
 
             <div className="text-xs text-slate-300 font-burmese">
-              <div className="font-bold text-amber-400">ဦးသီဟအောင် (U Thiha Aung)</div>
+              <div className="font-bold text-amber-400">Min Zaw</div>
               <div className="text-slate-400 mt-1">
                 ပေးသွင်းရမည့် ငွေပမာဏ: <span className="text-white font-bold">{selectedPlanData.priceDisplay}</span>
               </div>

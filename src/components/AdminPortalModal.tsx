@@ -2,34 +2,34 @@ import React, { useState } from 'react';
 import {
   ShieldCheck,
   KeyRound,
-  Cpu,
   FileCode,
-  Mic2,
-  CreditCard,
-  AlertTriangle,
-  Play,
-  CheckCircle2,
-  XCircle,
-  Copy,
-  Check,
-  RefreshCw,
-  Sparkles,
-  Save,
-  Lock,
-  Eye,
-  EyeOff,
-  Radio,
   Sliders,
   ToggleLeft,
   ToggleRight,
-  UserCheck,
   Trash2,
-  Settings2,
+  Lock,
+  Sparkles,
+  Save,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  ExternalLink,
+  Eye,
+  X,
+  CreditCard,
+  AlertTriangle,
+  Play,
+  RefreshCw,
+  Copy,
+  Check,
+  UserCheck,
+  Search,
 } from 'lucide-react';
-import { AdminConfig, PaymentVerificationRequest } from '../types';
+import { AdminConfig, PaymentVerificationRequest, PlanTierId } from '../types';
 import { SYSTEM_PROMPT_PRESETS } from '../data/adminDefaults';
 import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
 import { playVoicePreview } from '../utils/audioSynthesis';
+import { PRICING_PLANS, getPlanById } from '../data/pricingPlans';
 
 interface AdminPortalModalProps {
   isOpen: boolean;
@@ -39,6 +39,8 @@ interface AdminPortalModalProps {
   isAdminAuthenticated: boolean;
   onAdminLogin: () => void;
   onAdminLogout: () => void;
+  onApproveVipRequest?: (request: PaymentVerificationRequest) => void;
+  onRejectVipRequest?: (request: PaymentVerificationRequest) => void;
 }
 
 export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
@@ -49,11 +51,12 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
   isAdminAuthenticated,
   onAdminLogin,
   onAdminLogout,
+  onApproveVipRequest,
+  onRejectVipRequest,
 }) => {
-  const [activeTab, setActiveTab] = useState<'keys' | 'prompt' | 'tts' | 'billing' | 'maintenance' | 'playground'>('keys');
+  const [activeTab, setActiveTab] = useState<'keys' | 'prompt' | 'tts' | 'billing' | 'maintenance' | 'playground'>('billing');
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
-  const [showSecretKeys, setShowSecretKeys] = useState(false);
 
   // Form State
   const [assemblyKey, setAssemblyKey] = useState(config.assemblyMasterKey);
@@ -72,6 +75,12 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
   const [newPin, setNewPin] = useState(config.adminPin);
   const [requests, setRequests] = useState<PaymentVerificationRequest[]>(config.verificationRequests || []);
 
+  // Filter & Slip Modal state in Billing
+  const [billingFilter, setBillingFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeSlipModalImage, setActiveSlipModalImage] = useState<string | null>(null);
+  const [activeSlipReq, setActiveSlipReq] = useState<PaymentVerificationRequest | null>(null);
+
   // Status & Feedback
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isTestingGemini, setIsTestingGemini] = useState(false);
@@ -84,6 +93,25 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
   const [selectedPlaygroundVoice, setSelectedPlaygroundVoice] = useState(BURMESE_VOICE_AVATARS[0].id);
   const [isPlayingTestVoice, setIsPlayingTestVoice] = useState(false);
 
+  // Synchronize internal state when config prop changes
+  React.useEffect(() => {
+    setAssemblyKey(config.assemblyMasterKey);
+    setGeminiKey(config.geminiMasterKey);
+    setGeminiModel(config.geminiModel);
+    setSystemPrompt(config.systemPrompt);
+    setPresetChoice(config.systemPromptPreset);
+    setGlobalSpeed(config.globalSpeed);
+    setGlobalPitchHz(config.globalPitchHz);
+    setCommaPauseMs(config.commaPauseMs);
+    setPeriodPauseMs(config.periodPauseMs);
+    setKpayEnabled(config.kpayEnabled);
+    setWavepayEnabled(config.wavepayEnabled);
+    setMaintenanceMode(config.maintenanceMode);
+    setMaintenanceNotice(config.maintenanceNotice);
+    setNewPin(config.adminPin);
+    setRequests(config.verificationRequests || []);
+  }, [config]);
+
   if (!isOpen) return null;
 
   // Handle PIN authentication
@@ -93,7 +121,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
       setPinError('');
       onAdminLogin();
     } else {
-      setPinError('မှားယွင်းနေပါသည်။ Default PIN: 778899');
+      setPinError('PIN မမှန်ကန်ပါ။ (Default Master PIN: 778899)');
     }
   };
 
@@ -204,11 +232,20 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
     setTimeout(() => setSaveSuccess(false), 3000);
   };
 
-  // Handle Payment Slip Status change
+  // Handle Payment Slip Status change & trigger user subscription update
   const handleUpdateReqStatus = (id: string, newStatus: 'approved' | 'rejected') => {
+    const targetReq = requests.find((r) => r.id === id);
     const updated = requests.map((r) => (r.id === id ? { ...r, status: newStatus } : r));
     setRequests(updated);
     onSaveConfig({ ...config, verificationRequests: updated });
+
+    if (targetReq) {
+      if (newStatus === 'approved') {
+        onApproveVipRequest?.({ ...targetReq, status: 'approved' });
+      } else if (newStatus === 'rejected') {
+        onRejectVipRequest?.({ ...targetReq, status: 'rejected' });
+      }
+    }
   };
 
   const handleDeleteReq = (id: string) => {
@@ -216,6 +253,19 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
     setRequests(updated);
     onSaveConfig({ ...config, verificationRequests: updated });
   };
+
+  const pendingRequestsCount = requests.filter((r) => r.status === 'pending').length;
+
+  const filteredRequests = requests.filter((r) => {
+    const matchesFilter =
+      billingFilter === 'all' ? true : r.status === billingFilter;
+    const matchesSearch =
+      searchQuery.trim() === '' ||
+      r.userEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.customerPhone.includes(searchQuery) ||
+      (r.transactionRef && r.transactionRef.toLowerCase().includes(searchQuery.toLowerCase()));
+    return matchesFilter && matchesSearch;
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md animate-fadeIn">
@@ -295,7 +345,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                     </span>
                   </div>
                   <div className="text-xs text-slate-400 font-burmese">
-                    User UI မှ ကင်းလွတ်သော Background Master Engine ထိန်းချုပ်ရေး စခန်း
+                    User UI မှ ကင်းလွတ်သော Background Master Engine နှင့် VIP Approval ထိန်းချုပ်ရေး စခန်း
                   </div>
                 </div>
               </div>
@@ -323,6 +373,24 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
             <div className="px-4 sm:px-6 pt-3 border-b border-white/10 bg-slate-950/80 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
               <button
                 type="button"
+                onClick={() => setActiveTab('billing')}
+                className={`px-3.5 py-2 rounded-t-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap border-t border-x relative ${
+                  activeTab === 'billing'
+                    ? 'bg-slate-900 border-amber-500/40 text-amber-300 shadow'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>1. VIP Billing & Approvals</span>
+                {pendingRequestsCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-mono font-black animate-pulse">
+                    {pendingRequestsCount} Pending
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setActiveTab('keys')}
                 className={`px-3.5 py-2 rounded-t-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap border-t border-x ${
                   activeTab === 'keys'
@@ -331,7 +399,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                 }`}
               >
                 <KeyRound className="w-3.5 h-3.5" />
-                <span>1. Master API Keys & Models</span>
+                <span>2. Master API Keys</span>
               </button>
 
               <button
@@ -344,7 +412,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                 }`}
               >
                 <FileCode className="w-3.5 h-3.5" />
-                <span>2. Master System Prompt</span>
+                <span>3. Master System Prompt</span>
               </button>
 
               <button
@@ -356,26 +424,8 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Mic2 className="w-3.5 h-3.5" />
-                <span>3. TTS & Voice Tuner</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('billing')}
-                className={`px-3.5 py-2 rounded-t-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap border-t border-x ${
-                  activeTab === 'billing'
-                    ? 'bg-slate-900 border-amber-500/40 text-amber-300 shadow'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <CreditCard className="w-3.5 h-3.5" />
-                <span>4. Payment & Subscriptions</span>
-                {requests.filter((r) => r.status === 'pending').length > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-amber-500 text-black font-mono text-[10px] font-bold flex items-center justify-center ml-1">
-                    {requests.filter((r) => r.status === 'pending').length}
-                  </span>
-                )}
+                <Sliders className="w-3.5 h-3.5" />
+                <span>4. TTS Audio & Voices</span>
               </button>
 
               <button
@@ -388,10 +438,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                 }`}
               >
                 <AlertTriangle className="w-3.5 h-3.5" />
-                <span>5. Safe Maintenance Switch</span>
-                {maintenanceMode && (
-                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                )}
+                <span>5. Safe Maintenance</span>
               </button>
 
               <button
@@ -408,143 +455,413 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
               </button>
             </div>
 
-            {/* Tab Body Contents */}
-            <div className="p-5 sm:p-7 overflow-y-auto flex-1 space-y-6">
-              {/* TAB 1: MASTER API KEYS & MODEL SELECTION */}
-              {activeTab === 'keys' && (
+            {/* Scrollable Tab Content Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto max-h-[calc(92vh-190px)] space-y-6">
+              {/* ========================================================================= */}
+              {/* TAB 1: VIP BILLING & ADMIN APPROVAL TABLE */}
+              {/* ========================================================================= */}
+              {activeTab === 'billing' && (
                 <div className="space-y-6 animate-fadeIn">
-                  <div className="p-4 rounded-2xl bg-amber-950/20 border border-amber-500/30 text-xs text-slate-300 font-burmese leading-relaxed">
-                    💡 ဤနေရာတွင် ထည့်သွင်းထားသော Master API Key များကို User ဘက်မှ အလိုအလျောက် သုံးစွဲမည်ဖြစ်ပြီး User မျက်နှာပြင်တွင် API Key ထည့်ရန် လုံးဝ မလိုအပ်တော့ပါ။
-                  </div>
-
-                  {/* Google Gemini Master Key */}
-                  <div className="glass-panel p-5 rounded-2xl border border-white/10 space-y-3.5 bg-slate-900/60">
+                  {/* Gateway Configuration Box */}
+                  <div className="p-4 rounded-2xl bg-slate-900/60 border border-white/10 space-y-3">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Cpu className="w-4 h-4 text-purple-400" />
-                        <h3 className="text-sm font-bold text-white font-sans">
-                          Google Gemini Master API Key
-                        </h3>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowSecretKeys(!showSecretKeys)}
-                        className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 cursor-pointer"
-                      >
-                        {showSecretKeys ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        <span>{showSecretKeys ? 'Hide Keys' : 'Show Keys'}</span>
-                      </button>
+                      <h3 className="text-sm font-bold text-white font-burmese flex items-center gap-2">
+                        <CreditCard className="w-4 h-4 text-amber-400" />
+                        KBZPay Payment Details (Official Gateway)
+                      </h3>
+                      <span className="text-[11px] text-emerald-400 font-mono">
+                        Active Master Gateway
+                      </span>
                     </div>
 
-                    <div className="space-y-2">
-                      <input
-                        type={showSecretKeys ? 'text' : 'password'}
-                        value={geminiKey}
-                        onChange={(e) => setGeminiKey(e.target.value)}
-                        placeholder="e.g. AIzaSy..."
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-xs font-mono text-amber-200 focus:outline-none focus:border-amber-400"
-                      />
-                      <div className="flex items-center justify-between text-[11px] text-slate-400">
-                        <span>Used for automatic Burmese Movie Recap Script translation</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="p-3 rounded-xl bg-slate-950 border border-blue-500/30 flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <div className="text-xs font-bold text-white flex items-center gap-2">
+                            <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white font-mono text-[10px]">KPay</span>
+                            <span>Min Zaw &bull; 09778948352</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-burmese">
+                            User ဘက်တွင် ပြသထားသော ပင်မ KPay ငွေလက်ခံအကောင့်
+                          </div>
+                        </div>
                         <button
                           type="button"
-                          disabled={isTestingGemini || !geminiKey.trim()}
-                          onClick={handleTestGeminiKey}
-                          className="px-3 py-1 rounded-lg bg-purple-950/80 hover:bg-purple-900/80 border border-purple-500/40 text-purple-300 font-semibold cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                          onClick={() => setKpayEnabled(!kpayEnabled)}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                            kpayEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'
+                          }`}
                         >
-                          {isTestingGemini && <RefreshCw className="w-3 h-3 animate-spin" />}
-                          <span>Test Gemini Connection</span>
+                          {kpayEnabled ? 'ENABLED' : 'DISABLED'}
+                        </button>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-slate-950 border border-white/10 flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <div className="text-xs font-bold text-white flex items-center gap-2">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">Auto</span>
+                            <span>Instant Approval System</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-burmese">
+                            Admin မှ Approve နှိပ်ပါက User ၏ VIP စနစ် ချက်ချင်းပွင့်ပါမည်
+                          </div>
+                        </div>
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-500/30 text-xs font-mono font-bold">
+                          READY
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Customer Payment Slip Verification Requests & Approval Table */}
+                  <div className="space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-bold text-white flex items-center gap-2 font-burmese">
+                          <UserCheck className="w-4 h-4 text-amber-400" />
+                          VIP လျှောက်ထားမှုများနှင့် ပြေစာစိစစ်အတည်ပြုခြင်း (Pending Approvals)
+                        </h4>
+                        <p className="text-xs text-slate-400 font-burmese">
+                          User များမှ တင်သွင်းထားသော ငွေလွှဲပြေစာများနှင့် Transaction ID များကို စစ်ဆေး၍ Approve ပြုလုပ်ပါ
+                        </p>
+                      </div>
+
+                      {/* Filter Tabs */}
+                      <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-white/10 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setBillingFilter('all')}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                            billingFilter === 'all'
+                              ? 'bg-amber-500 text-black font-bold'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          All ({requests.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBillingFilter('pending')}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                            billingFilter === 'pending'
+                              ? 'bg-amber-500 text-black font-bold'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Pending ({pendingRequestsCount})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBillingFilter('approved')}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                            billingFilter === 'approved'
+                              ? 'bg-amber-500 text-black font-bold'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Approved ({requests.filter((r) => r.status === 'approved').length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBillingFilter('rejected')}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                            billingFilter === 'rejected'
+                              ? 'bg-amber-500 text-black font-bold'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Rejected ({requests.filter((r) => r.status === 'rejected').length})
                         </button>
                       </div>
                     </div>
 
-                    {geminiTestResult && (
-                      <div
-                        className={`p-3 rounded-xl border text-xs font-burmese flex items-center gap-2 ${
-                          geminiTestResult.success
-                            ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                            : 'bg-red-950/60 border-red-500/40 text-red-300'
-                        }`}
-                      >
-                        {geminiTestResult.success ? (
-                          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-                        ) : (
-                          <XCircle className="w-4 h-4 shrink-0 text-red-400" />
-                        )}
-                        <span>{geminiTestResult.msg}</span>
-                      </div>
-                    )}
-
-                    {/* Gemini Model Selector */}
-                    <div className="pt-2 border-t border-white/10">
-                      <label className="block text-xs font-bold text-slate-300 mb-2">
-                        Target Gemini Model Selection:
-                      </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {[
-                          { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tag: 'Recommended (Fast & Smart)' },
-                          { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', tag: 'Ultra Low Latency' },
-                          { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash', tag: 'High Token Context' },
-                          { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash', tag: 'Elite Cinematic Prosody' },
-                        ].map((m) => (
-                          <div
-                            key={m.id}
-                            onClick={() => setGeminiModel(m.id as any)}
-                            className={`p-2.5 rounded-xl border transition-all cursor-pointer text-left ${
-                              geminiModel === m.id
-                                ? 'bg-purple-950/60 border-purple-500 shadow-md ring-1 ring-purple-500/40'
-                                : 'bg-slate-950/60 border-white/10 hover:border-white/20'
-                            }`}
-                          >
-                            <div className="text-xs font-bold text-white">{m.label}</div>
-                            <div className="text-[10px] text-slate-400">{m.tag}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* AssemblyAI Master Key */}
-                  <div className="glass-panel p-5 rounded-2xl border border-white/10 space-y-3.5 bg-slate-900/60">
-                    <div className="flex items-center gap-2">
-                      <Mic2 className="w-4 h-4 text-amber-400" />
-                      <h3 className="text-sm font-bold text-white font-sans">
-                        AssemblyAI Master API Key (Audio Extraction & STT)
-                      </h3>
-                    </div>
-
-                    <div className="space-y-2">
+                    {/* Search Bar */}
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
-                        type={showSecretKeys ? 'text' : 'password'}
-                        value={assemblyKey}
-                        onChange={(e) => setAssemblyKey(e.target.value)}
-                        placeholder="e.g. your-assemblyai-api-token"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-xs font-mono text-amber-200 focus:outline-none focus:border-amber-400"
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search by user email, phone number, or transaction ref..."
+                        className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900/90 border border-white/10 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500"
                       />
-                      <div className="text-[11px] text-slate-400">
-                        If left blank or demo mode, the studio uses simulated high-retention transcript segmentation.
-                      </div>
+                    </div>
+
+                    {/* Requests List */}
+                    <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                      {filteredRequests.length === 0 ? (
+                        <div className="p-8 text-center rounded-2xl bg-slate-900/40 border border-white/5 space-y-2">
+                          <div className="text-slate-500 text-sm font-burmese">
+                            ငွေပေးချေမှု တောင်းဆိုချက်များ မရှိသေးပါ (No Requests Found)
+                          </div>
+                          <p className="text-[11px] text-slate-600">
+                            User များ VIP လျှောက်ထားပါက ဤနေရာတွင် အလိုအလျောက် ချက်ချင်း ရောက်ရှိလာပါမည်
+                          </p>
+                        </div>
+                      ) : (
+                        filteredRequests.map((r) => {
+                          const plan = getPlanById(r.planId);
+                          return (
+                            <div
+                              key={r.id}
+                              className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                                r.status === 'pending'
+                                  ? 'bg-gradient-to-r from-amber-950/40 via-slate-900/90 to-slate-900/90 border-amber-500/50 shadow-lg shadow-amber-500/5'
+                                  : r.status === 'approved'
+                                  ? 'bg-slate-900/70 border-emerald-500/30'
+                                  : 'bg-slate-900/40 border-red-500/20 opacity-75'
+                              }`}
+                            >
+                              <div className="space-y-2 flex-1">
+                                {/* Top Badges */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-bold text-white font-sans text-sm">{r.userEmail}</span>
+
+                                  {/* Plan Tag */}
+                                  <span
+                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                                      r.planId === 'unlimited_pro'
+                                        ? 'bg-purple-950 text-purple-300 border border-purple-500/40'
+                                        : r.planId === 'standard'
+                                        ? 'bg-amber-950 text-amber-300 border border-amber-500/40'
+                                        : 'bg-blue-950 text-blue-300 border border-blue-500/40'
+                                    }`}
+                                  >
+                                    {plan.nameEnglish} ({plan.priceDisplay})
+                                  </span>
+
+                                  {/* Status Tag */}
+                                  <span
+                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase flex items-center gap-1 ${
+                                      r.status === 'approved'
+                                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                                        : r.status === 'rejected'
+                                        ? 'bg-red-950 text-red-300 border border-red-500/40'
+                                        : 'bg-amber-950 text-amber-300 border border-amber-500/40 animate-pulse'
+                                    }`}
+                                  >
+                                    {r.status === 'approved' ? (
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                    ) : r.status === 'rejected' ? (
+                                      <XCircle className="w-3 h-3 text-red-400" />
+                                    ) : (
+                                      <Clock className="w-3 h-3 text-amber-400" />
+                                    )}
+                                    <span>{r.status}</span>
+                                  </span>
+
+                                  <span className="text-[11px] text-slate-500 font-mono">
+                                    {r.submittedAt}
+                                  </span>
+                                </div>
+
+                                {/* Details info */}
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-slate-300">
+                                  <div className="flex items-center gap-1 font-mono">
+                                    <span className="text-slate-500">Ph:</span>
+                                    <span className="text-amber-300 font-bold">{r.customerPhone}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 font-mono">
+                                    <span className="text-slate-500">Tx Ref:</span>
+                                    <span className="text-amber-300 font-bold">{r.transactionRef}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 font-mono">
+                                    <span className="text-slate-500">Amount:</span>
+                                    <span className="text-emerald-300 font-bold">{r.amountMmk.toLocaleString()} MMK</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Slip Image Thumbnail & Action Buttons */}
+                              <div className="flex items-center gap-2.5 shrink-0 self-end md:self-center">
+                                {r.slipImageUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveSlipModalImage(r.slipImageUrl || null);
+                                      setActiveSlipReq(r);
+                                    }}
+                                    className="p-1 rounded-xl bg-slate-950 border border-white/20 hover:border-amber-400 transition-all cursor-pointer group relative"
+                                    title="View Slip Screenshot"
+                                  >
+                                    <img
+                                      src={r.slipImageUrl}
+                                      alt="Slip Preview"
+                                      className="w-14 h-14 object-cover rounded-lg"
+                                    />
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 rounded-lg flex items-center justify-center transition-all">
+                                      <Eye className="w-4 h-4 text-white" />
+                                    </div>
+                                  </button>
+                                )}
+
+                                {r.status === 'pending' ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateReqStatus(r.id, 'approved')}
+                                      className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-bold text-xs shadow-md shadow-emerald-600/30 cursor-pointer flex items-center gap-1.5 transition-all"
+                                    >
+                                      <CheckCircle2 className="w-4 h-4" />
+                                      <span>Approve VIP</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateReqStatus(r.id, 'rejected')}
+                                      className="px-3 py-2 rounded-xl bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-semibold text-xs cursor-pointer transition-all"
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[11px] font-mono text-slate-400 font-medium">
+                                      {r.status === 'approved' ? '✓ Approved' : '✕ Rejected'}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleUpdateReqStatus(
+                                          r.id,
+                                          r.status === 'approved' ? 'rejected' : 'approved'
+                                        )
+                                      }
+                                      className="text-[11px] text-amber-400 hover:underline px-2 py-1"
+                                    >
+                                      Change
+                                    </button>
+                                  </div>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteReq(r.id)}
+                                  className="p-2 rounded-xl bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-400 transition-all cursor-pointer"
+                                  title="Delete Record"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* TAB 2: MASTER SYSTEM PROMPT STUDIO */}
+              {/* ========================================================================= */}
+              {/* TAB 2: MASTER API KEYS & MODEL CONFIGURATION */}
+              {/* ========================================================================= */}
+              {activeTab === 'keys' && (
+                <div className="space-y-6 animate-fadeIn">
+                  {/* AssemblyAI Master Key */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/60 border border-white/10 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-600/30 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                          <KeyRound className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-white">AssemblyAI Master Backend Key</h4>
+                          <p className="text-[11px] text-slate-400 font-burmese">
+                            User မှ Key မထည့်ထားပါက System မှ အသုံးပြုမည့် Default Transcription Key
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <input
+                      type="password"
+                      value={assemblyKey}
+                      onChange={(e) => setAssemblyKey(e.target.value)}
+                      placeholder="Paste AssemblyAI Master API Key here..."
+                      className="w-full text-xs font-mono px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-slate-200 focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+
+                  {/* Gemini Master Key & Model */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/60 border border-white/10 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-amber-600/30 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                          <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-white">Google Gemini Master Translation Key</h4>
+                          <p className="text-[11px] text-slate-400 font-burmese">
+                            ရုပ်ရှင်ရီကပ် စကားပြောဘာသာပြန်ဆိုရန် ပင်မ Gemini API Key
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="sm:col-span-2">
+                        <input
+                          type="password"
+                          value={geminiKey}
+                          onChange={(e) => setGeminiKey(e.target.value)}
+                          placeholder="Paste Google Gemini Master API Key (AIzaSy...)"
+                          className="w-full text-xs font-mono px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-slate-200 focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+
+                      <div>
+                        <select
+                          value={geminiModel}
+                          onChange={(e) => setGeminiModel(e.target.value)}
+                          className="w-full text-xs font-mono px-3 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-amber-300 focus:outline-none focus:border-amber-400"
+                        >
+                          <option value="gemini-2.5-flash">gemini-2.5-flash (Fast & Accurate)</option>
+                          <option value="gemini-2.5-pro">gemini-2.5-pro (High Quality)</option>
+                          <option value="gemini-1.5-flash">gemini-1.5-flash (Legacy)</option>
+                          <option value="gemini-1.5-pro">gemini-1.5-pro (Legacy Pro)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={handleTestGeminiKey}
+                        disabled={isTestingGemini || !geminiKey.trim()}
+                        className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all"
+                      >
+                        {isTestingGemini ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                        <span>Test Gemini Master Key</span>
+                      </button>
+
+                      {geminiTestResult && (
+                        <span
+                          className={`text-xs font-mono ${
+                            geminiTestResult.success ? 'text-emerald-400' : 'text-red-400'
+                          }`}
+                        >
+                          {geminiTestResult.msg}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* TAB 3: MASTER SYSTEM PROMPT */}
+              {/* ========================================================================= */}
               {activeTab === 'prompt' && (
-                <div className="space-y-5 animate-fadeIn">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-4 animate-fadeIn">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-bold text-white font-burmese">
-                        ရုပ်ရှင်ဇာတ်လမ်းပြော Master System Prompt ပြင်ဆင်ရန်
-                      </h3>
-                      <p className="text-xs text-slate-400 font-burmese mt-0.5">
-                        Gemini AI အား မြန်မာစကားပြော ဇာတ်ကြောင်းပြောဟန်ဖြင့် ဘာသာပြန်ခိုင်းမည့် Master Prompt
+                      <h4 className="text-sm font-bold text-white font-burmese">Master System Prompt Configurator</h4>
+                      <p className="text-xs text-slate-400 font-burmese">
+                        ရုပ်ရှင်ရီကပ် ဇာတ်လမ်းပြော စတိုင်လ်နှင့် စည်းမျဉ်းများ သတ်မှတ်ပေးခြင်း
                       </p>
                     </div>
 
-                    {/* Presets dropdown */}
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400">Presets:</span>
+                      <span className="text-xs text-slate-400 font-burmese">Preset စတိုင်လ်:</span>
                       <select
                         value={presetChoice}
                         onChange={(e) => handleSelectPreset(e.target.value as any)}
@@ -587,7 +904,9 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                 </div>
               )}
 
-              {/* TAB 3: TTS & VOICE TUNER */}
+              {/* ========================================================================= */}
+              {/* TAB 4: TTS & VOICE TUNER */}
+              {/* ========================================================================= */}
               {activeTab === 'tts' && (
                 <div className="space-y-6 animate-fadeIn">
                   <div className="p-4 rounded-2xl bg-slate-900/60 border border-white/10 space-y-4">
@@ -680,7 +999,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                         >
                           <div className="truncate">
                             <div className="font-bold text-white truncate font-burmese">{v.nameBurmese} ({v.nameEnglish})</div>
-                            <div className="text-[10px] text-slate-400">{v.gender === 'male' ? '👨 Male (Thiha)' : '👩 Female (Nilar)'}</div>
+                            <div className="text-[10px] text-slate-400">{v.gender === 'male' ? '👨 Male' : '👩 Female'}</div>
                           </div>
                           <span className="text-[10px] font-mono text-amber-400 shrink-0">{v.code}</span>
                         </div>
@@ -690,135 +1009,9 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                 </div>
               )}
 
-              {/* TAB 4: PAYMENT & SUBSCRIPTION MANAGEMENT */}
-              {activeTab === 'billing' && (
-                <div className="space-y-6 animate-fadeIn">
-                  {/* Gateway Toggles */}
-                  <div className="p-4 rounded-2xl bg-slate-900/60 border border-white/10 space-y-3">
-                    <h3 className="text-sm font-bold text-white font-burmese">
-                      Myanmar Payment Gateway Controls
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="p-3 rounded-xl bg-slate-950 border border-white/10 flex items-center justify-between">
-                        <div>
-                          <div className="text-xs font-bold text-white">KBZPay (KPay) Gateway</div>
-                          <div className="text-[10px] text-slate-400 font-mono">09-952458992 &bull; ဦးသီဟအောင်</div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setKpayEnabled(!kpayEnabled)}
-                          className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                            kpayEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'
-                          }`}
-                        >
-                          {kpayEnabled ? 'ENABLED' : 'DISABLED'}
-                        </button>
-                      </div>
-
-                      <div className="p-3 rounded-xl bg-slate-950 border border-white/10 flex items-center justify-between">
-                        <div>
-                          <div className="text-xs font-bold text-white">WavePay Gateway</div>
-                          <div className="text-[10px] text-slate-400 font-mono">09-952458992 &bull; ဦးသီဟအောင်</div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setWavepayEnabled(!wavepayEnabled)}
-                          className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                            wavepayEnabled ? 'bg-amber-600 text-black font-extrabold' : 'bg-slate-800 text-slate-400'
-                          }`}
-                        >
-                          {wavepayEnabled ? 'ENABLED' : 'DISABLED'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Customer Payment Slip Verification Requests */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                        Customer Payment Requests ({requests.length})
-                      </h4>
-                    </div>
-
-                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                      {requests.length === 0 ? (
-                        <div className="p-6 text-center text-xs text-slate-500 font-burmese">
-                          ငွေပေးချေမှု တောင်းဆိုချက်များ မရှိသေးပါ
-                        </div>
-                      ) : (
-                        requests.map((r) => (
-                          <div
-                            key={r.id}
-                            className="p-3.5 rounded-xl bg-slate-900/80 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                          >
-                            <div className="space-y-1 font-burmese">
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-white font-sans">{r.userEmail}</span>
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/40">
-                                  {r.planId === 'unlimited_pro'
-                                    ? 'Tier 3: Unlimited Pro'
-                                    : r.planId === 'standard'
-                                    ? 'Tier 2: Standard'
-                                    : r.planId === 'basic'
-                                    ? 'Tier 1: Basic'
-                                    : 'Tier 0: Free'}
-                                </span>
-                                <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-mono uppercase ${
-                                    r.status === 'approved'
-                                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
-                                      : r.status === 'rejected'
-                                      ? 'bg-red-950 text-red-300 border border-red-500/40'
-                                      : 'bg-amber-950 text-amber-300 border border-amber-500/40 animate-pulse'
-                                  }`}
-                                >
-                                  {r.status}
-                                </span>
-                              </div>
-                              <div className="text-slate-400 text-[11px] font-mono">
-                                Ph: {r.customerPhone} &bull; Ref: {r.transactionRef} &bull; {r.amountMmk.toLocaleString()} MMK ({r.paymentMethod.toUpperCase()})
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {r.status === 'pending' && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleUpdateReqStatus(r.id, 'approved')}
-                                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] cursor-pointer flex items-center gap-1"
-                                  >
-                                    <CheckCircle2 className="w-3 h-3" />
-                                    <span>Approve VIP</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleUpdateReqStatus(r.id, 'rejected')}
-                                    className="px-2.5 py-1 rounded-lg bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-semibold text-[11px] cursor-pointer"
-                                  >
-                                    Reject
-                                  </button>
-                                </>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteReq(r.id)}
-                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-400 cursor-pointer"
-                                title="Delete Record"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
+              {/* ========================================================================= */}
               {/* TAB 5: SAFE MAINTENANCE SWITCH */}
+              {/* ========================================================================= */}
               {activeTab === 'maintenance' && (
                 <div className="space-y-5 animate-fadeIn">
                   <div className="p-5 rounded-2xl bg-amber-950/20 border border-amber-500/40 space-y-4">
@@ -884,7 +1077,9 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                 </div>
               )}
 
+              {/* ========================================================================= */}
               {/* TAB 6: LIVE AI TEST PLAYGROUND */}
+              {/* ========================================================================= */}
               {activeTab === 'playground' && (
                 <div className="space-y-5 animate-fadeIn">
                   <div className="p-4 rounded-2xl bg-slate-900/60 border border-white/10 space-y-4">
@@ -986,6 +1181,65 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
           </>
         )}
       </div>
+
+      {/* Slip Modal View */}
+      {activeSlipModalImage && activeSlipReq && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-fadeIn">
+          <div className="glass-panel p-6 rounded-3xl bg-slate-950 border border-white/20 max-w-lg w-full space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="space-y-0.5">
+                <h3 className="text-sm font-bold text-white font-burmese">
+                  Payment Slip Screenshot (ငွေလွှဲပြေစာ)
+                </h3>
+                <div className="text-xs text-slate-400 font-mono">
+                  {activeSlipReq.userEmail} &bull; Ref: {activeSlipReq.transactionRef}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSlipModalImage(null);
+                  setActiveSlipReq(null);
+                }}
+                className="p-1 rounded-lg bg-slate-900 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-2 bg-slate-900 rounded-2xl flex items-center justify-center overflow-hidden border border-white/10">
+              <img
+                src={activeSlipModalImage}
+                alt="Enlarged Slip"
+                className="max-h-[60vh] max-w-full rounded-xl object-contain shadow-2xl"
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-slate-400 font-mono">
+                Amount: <strong className="text-emerald-400">{activeSlipReq.amountMmk.toLocaleString()} MMK</strong>
+              </span>
+
+              {activeSlipReq.status === 'pending' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleUpdateReqStatus(activeSlipReq.id, 'approved');
+                      setActiveSlipModalImage(null);
+                      setActiveSlipReq(null);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Approve VIP Now</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

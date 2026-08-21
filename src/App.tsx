@@ -6,10 +6,12 @@ import {
   StudioStep,
   TranscriptSegment,
   VipSubscriptionInfo,
+  PaymentVerificationRequest,
 } from './types';
 import { SAMPLE_MOVIES } from './data/sampleMovies';
 import { BURMESE_VOICE_AVATARS } from './data/burmeseVoices';
 import { loadAdminConfig, saveAdminConfig } from './data/adminDefaults';
+import { getPlanById } from './data/pricingPlans';
 import { Header } from './components/Header';
 import { StepIndicator } from './components/StepIndicator';
 import { Step1Upload } from './components/Step1Upload';
@@ -124,6 +126,52 @@ export default function App() {
   const handleSaveAdminConfig = (updated: AdminConfig) => {
     setAdminConfig(updated);
     saveAdminConfig(updated);
+  };
+
+  // Handle new VIP payment slip submission from User
+  const handleNewVerificationRequest = (request: PaymentVerificationRequest) => {
+    const existing = adminConfig.verificationRequests || [];
+    const updatedRequests = [request, ...existing.filter((r) => r.id !== request.id)];
+    const updatedConfig: AdminConfig = {
+      ...adminConfig,
+      verificationRequests: updatedRequests,
+    };
+    setAdminConfig(updatedConfig);
+    saveAdminConfig(updatedConfig);
+  };
+
+  // Handle VIP Approval from Admin Portal
+  const handleApproveVipRequest = (request: PaymentVerificationRequest) => {
+    const plan = getPlanById(request.planId);
+    const approvedInfo: VipSubscriptionInfo = {
+      status: 'active_vip',
+      planId: request.planId,
+      planName: `${plan.nameEnglish} (${plan.nameBurmese})`,
+      dailyFreeRemaining: 0,
+      maxDailyFree: 2,
+      monthlyRemaining: plan.recapLimit,
+      maxMonthlyLimit: plan.recapLimit,
+      approvedAt: new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }),
+      transactionRef: request.transactionRef,
+      paymentMethod: request.paymentMethod,
+    };
+    handleUpdateVipInfo(approvedInfo);
+  };
+
+  // Handle VIP Rejection from Admin Portal
+  const handleRejectVipRequest = (_request: PaymentVerificationRequest) => {
+    const rejectedInfo: VipSubscriptionInfo = {
+      status: 'free',
+      planId: 'free',
+      planName: 'Free Plan (အခမဲ့ စမ်းသပ်ခြင်း)',
+      dailyFreeRemaining: 2,
+      maxDailyFree: 2,
+    };
+    handleUpdateVipInfo(rejectedInfo);
   };
 
   // User save custom API keys
@@ -615,6 +663,7 @@ export default function App() {
         onSaveGeminiKey={handleSaveUserGeminiKey}
         vipInfo={vipInfo}
         onUpdateVipInfo={handleUpdateVipInfo}
+        onNewVerificationRequest={handleNewVerificationRequest}
         userEmail={userEmail}
       />
 
@@ -627,6 +676,8 @@ export default function App() {
         isAdminAuthenticated={isAdminAuthenticated}
         onAdminLogin={handleAdminLogin}
         onAdminLogout={handleAdminLogout}
+        onApproveVipRequest={handleApproveVipRequest}
+        onRejectVipRequest={handleRejectVipRequest}
       />
 
       {/* Footer with subtle Admin trigger link */}
