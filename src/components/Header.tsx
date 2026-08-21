@@ -110,7 +110,19 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right Section: Clean User Controls */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Admin Direct Access Button (If Logged In or Secret Trigger) */}
+          {/* Settings & VIP Button */}
+          <button
+            id="header-user-settings-btn"
+            type="button"
+            onClick={() => onOpenSettings('vip')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-white/10 text-xs text-slate-200 hover:text-amber-300 font-medium transition-all cursor-pointer shadow-sm"
+            title="Settings & VIP Subscription"
+          >
+            <Settings className="w-3.5 h-3.5 text-amber-400" />
+            <span className="font-burmese">Settings & VIP</span>
+          </button>
+
+          {/* Admin Direct Access Button (If Logged In) */}
           {isAdminAuthenticated && (
             <button
               onClick={onOpenAdminPortal}
@@ -168,12 +180,34 @@ export const Header: React.FC<HeaderProps> = ({
                   <button
                     onClick={() => {
                       setIsProfileDropdownOpen(false);
+                      onOpenSettings('vip');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-all text-left cursor-pointer"
+                  >
+                    <Crown className="w-4 h-4 text-amber-400" />
+                    <span>👑 VIP Subscription</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsProfileDropdownOpen(false);
+                      onOpenSettings('api');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-all text-left cursor-pointer"
+                  >
+                    <Settings className="w-4 h-4 text-purple-400" />
+                    <span>⚙️ Settings & Guide</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsProfileDropdownOpen(false);
                       onOpenAdminPortal();
                     }}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 rounded-xl transition-all text-left cursor-pointer"
                   >
                     <KeyRound className="w-4 h-4 text-amber-400" />
-                    <span>🛡️ Admin Secret Portal</span>
+                    <span>🛡️ Admin Master Portal</span>
                   </button>
                 </div>
               </div>
