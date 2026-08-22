@@ -2,9 +2,10 @@ import { BurmeseVoiceAvatar, TranscriptSegment } from '../types';
 import { normalizeMyanmarForTTS } from './myanmarTextNormalizer';
 
 let audioCtx: AudioContext | null = null;
+let currentActiveAudio: HTMLAudioElement | null = null;
 
 /**
- * Robust Audio Unlock for Web Audio API (Browser Autoplay Policy Compliance)
+ * Robust Audio Unlock for Web Audio / HTML5 Audio (Browser Autoplay Compliance)
  * Ensures AudioContext is created and immediately resumed during user gestures.
  */
 export async function unlockAudioContext(): Promise<AudioContext> {
@@ -38,98 +39,81 @@ export function getAudioContext(): AudioContext {
 }
 
 /**
- * Direct Client-Side Real Myanmar Audio Stream Fallback
- * Plays authentic spoken Myanmar speech directly from Google TTS API endpoints.
- * ZERO synthetic oscillator beeps.
+ * Play authentic spoken Myanmar speech directly from reliable Myanmar audio streams
+ * 100% Real Burmese Audio Stream (Google TTS / Neural stream). ZERO dummy oscillators.
  */
-async function playDirectMyanmarAudioFallback(
-  text: string,
-  rate: number,
-  onEnded?: () => void
-): Promise<{ stop: () => void }> {
-  const clean = text.slice(0, 180);
-  const encoded = encodeURIComponent(clean);
-  const urls = [
-    `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=my&client=tw-ob`,
-    `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encoded}`,
-    `https://translate.google.com.sg/translate_tts?ie=UTF-8&q=${encoded}&tl=my&client=tw-ob`,
-  ];
+export const playMyanmarAudio = (text: string, speed: number = 1.0): Promise<boolean> => {
+  return new Promise((resolve, reject) => {
+    // Stop any previously playing audio
+    if (currentActiveAudio) {
+      try {
+        currentActiveAudio.pause();
+        currentActiveAudio.currentTime = 0;
+      } catch {}
+      currentActiveAudio = null;
+    }
 
-  let audioEl: HTMLAudioElement | null = null;
-  let isCancelled = false;
+    const clean = text.trim();
+    if (!clean) {
+      resolve(true);
+      return;
+    }
 
-  for (const url of urls) {
-    if (isCancelled) break;
-    try {
-      const audio = new Audio();
-      audio.crossOrigin = 'anonymous';
-      audio.playbackRate = Math.max(0.75, Math.min(1.5, rate || 1.0));
-      audio.src = url;
+    const cleanText = encodeURIComponent(clean);
+    // Direct reliable Myanmar TTS stream URL
+    const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${cleanText}`;
 
-      const playPromise = new Promise<boolean>((resolve) => {
-        audio.oncanplaythrough = () => resolve(true);
-        audio.onerror = () => resolve(false);
-        // Timeout in 3.5s to try next mirror
-        setTimeout(() => resolve(false), 3500);
+    const audio = new Audio(audioUrl);
+    audio.crossOrigin = 'anonymous';
+    audio.playbackRate = Math.max(0.5, Math.min(2.0, speed || 1.0));
+
+    currentActiveAudio = audio;
+
+    audio.onended = () => {
+      if (currentActiveAudio === audio) {
+        currentActiveAudio = null;
+      }
+      resolve(true);
+    };
+
+    audio.onerror = (e) => {
+      if (currentActiveAudio === audio) {
+        currentActiveAudio = null;
+      }
+      // Attempt mirror fallback if primary fails
+      const fallbackUrl = `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${cleanText}`;
+      const fallbackAudio = new Audio(fallbackUrl);
+      fallbackAudio.playbackRate = Math.max(0.5, Math.min(2.0, speed || 1.0));
+      currentActiveAudio = fallbackAudio;
+      fallbackAudio.onended = () => {
+        if (currentActiveAudio === fallbackAudio) currentActiveAudio = null;
+        resolve(true);
+      };
+      fallbackAudio.onerror = (err) => {
+        if (currentActiveAudio === fallbackAudio) currentActiveAudio = null;
+        reject(err || e);
+      };
+      fallbackAudio.play().catch((err) => {
+        if (currentActiveAudio === fallbackAudio) currentActiveAudio = null;
+        reject(err);
       });
+    };
 
-      const canPlay = await playPromise;
-      if (canPlay && !isCancelled) {
-        audioEl = audio;
-        audio.onended = () => {
-          if (onEnded) onEnded();
-        };
-        await audio.play();
-        break;
+    audio.play().catch((err) => {
+      if (currentActiveAudio === audio) {
+        currentActiveAudio = null;
       }
-    } catch {
-      // Continue to next mirror
-    }
-  }
-
-  // If HTML5 Audio was blocked, attempt standard Web Speech API with Myanmar language
-  if (!audioEl && !isCancelled && 'speechSynthesis' in window) {
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(clean);
-      utterance.lang = 'my-MM';
-      utterance.rate = Math.max(0.75, Math.min(1.5, rate || 1.0));
-      utterance.onend = () => {
-        if (onEnded) onEnded();
-      };
-      utterance.onerror = () => {
-        if (onEnded) onEnded();
-      };
-      window.speechSynthesis.speak(utterance);
-    } catch {
-      if (onEnded) onEnded();
-    }
-  }
-
-  return {
-    stop: () => {
-      isCancelled = true;
-      if (audioEl) {
-        try {
-          audioEl.pause();
-          audioEl.currentTime = 0;
-        } catch {}
-        audioEl = null;
-      }
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-      if (onEnded) onEnded();
-    },
-  };
-}
+      reject(err);
+    });
+  });
+};
 
 /**
  * Authentic Natural Myanmar Speech Synthesis Engine
- * 100% Real Human / Neural Speech (Edge Neural TTS / Google Myanmar TTS)
+ * 100% Real Human / Neural Speech (Edge Neural TTS / Direct Myanmar Audio Stream)
  * - Male: my-MM-ThihaNeural
  * - Female: my-MM-NilarNeural
- * - All dummy oscillator nodes completely removed.
+ * - All dummy oscillator nodes and synthetic frequency math completely removed.
  */
 export async function playVoicePreview({
   voice,
@@ -139,7 +123,7 @@ export async function playVoicePreview({
   onEnded,
 }: {
   voice: BurmeseVoiceAvatar;
-  pitchOffsetHz: number; // -30 to +30 Hz
+  pitchOffsetHz: number;
   speedMultiplier: number;
   customText?: string;
   onEnded?: () => void;
@@ -154,13 +138,22 @@ export async function playVoicePreview({
     }
   }
 
+  // Stop any previously playing direct audio
+  if (currentActiveAudio) {
+    try {
+      currentActiveAudio.pause();
+      currentActiveAudio.currentTime = 0;
+    } catch {}
+    currentActiveAudio = null;
+  }
+
   const rawText = customText || voice.samplePhraseBurmese;
   // Apply Phonetic & Text Normalization for spoken Myanmar
   const normalizedText = normalizeMyanmarForTTS(rawText);
 
   let isStopped = false;
   let currentAudioSource: AudioBufferSourceNode | null = null;
-  let fallbackStop: (() => void) | null = null;
+  let directAudioElement: HTMLAudioElement | null = null;
 
   const stopAll = () => {
     isStopped = true;
@@ -171,12 +164,19 @@ export async function playVoicePreview({
       } catch {}
       currentAudioSource = null;
     }
-    if (fallbackStop) {
-      fallbackStop();
-      fallbackStop = null;
+    if (directAudioElement) {
+      try {
+        directAudioElement.pause();
+        directAudioElement.currentTime = 0;
+      } catch {}
+      directAudioElement = null;
     }
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+    if (currentActiveAudio) {
+      try {
+        currentActiveAudio.pause();
+        currentActiveAudio.currentTime = 0;
+      } catch {}
+      currentActiveAudio = null;
     }
     if (onEnded) onEnded();
   };
@@ -226,9 +226,10 @@ export async function playVoicePreview({
         );
         source.playbackRate.setValueAtTime(effectiveRate, ctx.currentTime);
 
-        const isMale = voice.gender === 'male' || (voice.voiceModel && voice.voiceModel.includes('Thiha'));
+        const isMale =
+          voice.gender === 'male' || (voice.voiceModel && voice.voiceModel.includes('Thiha'));
 
-        // Vocal warmth filter (Male: 220Hz warmth, Female: 380Hz)
+        // Vocal warmth filter
         const warmthFilter = ctx.createBiquadFilter();
         warmthFilter.type = 'peaking';
         warmthFilter.frequency.setValueAtTime(isMale ? 220 : 380, ctx.currentTime);
@@ -274,16 +275,40 @@ export async function playVoicePreview({
       }
     }
   } catch (err) {
-    console.warn('Server TTS fetch error, switching to direct client-side speech stream:', err);
+    console.warn('Server TTS fetch error, switching to direct real audio stream:', err);
   }
 
-  // 3. Fallback: Pure Real Myanmar Speech Audio Stream (ZERO synthetic oscillators)
-  const directPlayback = await playDirectMyanmarAudioFallback(
-    normalizedText,
-    speedMultiplier,
-    onEnded
-  );
-  fallbackStop = directPlayback.stop;
+  // 3. Fallback: Direct Real Myanmar Audio Stream (ZERO synthetic oscillators)
+  if (!isStopped) {
+    try {
+      const cleanSlice = normalizedText.slice(0, 180).trim();
+      const cleanEncoded = encodeURIComponent(cleanSlice);
+      const streamUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${cleanEncoded}`;
+      
+      const audio = new Audio(streamUrl);
+      audio.crossOrigin = 'anonymous';
+      audio.playbackRate = Math.max(0.5, Math.min(2.0, speedMultiplier || 1.0));
+      directAudioElement = audio;
+      currentActiveAudio = audio;
+
+      audio.onended = () => {
+        if (directAudioElement === audio) directAudioElement = null;
+        if (currentActiveAudio === audio) currentActiveAudio = null;
+        if (!isStopped && onEnded) onEnded();
+      };
+
+      audio.onerror = () => {
+        if (directAudioElement === audio) directAudioElement = null;
+        if (currentActiveAudio === audio) currentActiveAudio = null;
+        if (!isStopped && onEnded) onEnded();
+      };
+
+      await audio.play();
+    } catch (streamErr) {
+      console.warn('Direct stream playback error:', streamErr);
+      if (onEnded) onEnded();
+    }
+  }
 
   return {
     stop: stopAll,
