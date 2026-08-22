@@ -3,7 +3,13 @@ import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
 import { normalizeMyanmarForTTS } from './myanmarTextNormalizer';
 
 let audioCtx: AudioContext | null = null;
+let currentSourceNode: AudioBufferSourceNode | null = null;
+let currentGainNode: GainNode | null = null;
 let currentActiveAudio: HTMLAudioElement | null = null;
+
+// In-Memory Decoded AudioBuffer & Blob Caches for 0ms Instant Playback & Zero Stuttering
+const audioBufferCache = new Map<string, AudioBuffer>();
+const audioBlobCache = new Map<string, { blob: Blob; blobUrl: string }>();
 
 /**
  * Universal Shared Audio Element to guarantee gesture-unlocked playback on Mobile Chrome/Safari/WebView
@@ -30,6 +36,7 @@ export async function unlockAudioContext(): Promise<AudioContext> {
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     audioCtx = new AudioContextClass();
   }
+
   if (audioCtx.state === 'suspended') {
     try {
       await audioCtx.resume();
@@ -37,6 +44,17 @@ export async function unlockAudioContext(): Promise<AudioContext> {
       console.warn('AudioContext resume exception:', e);
     }
   }
+
+  // Pre-unlock Web Audio pipeline with a micro-silent 1-sample buffer
+  try {
+    if (audioCtx && audioCtx.state === 'running') {
+      const silentBuf = audioCtx.createBuffer(1, 1, 22050);
+      const silentSrc = audioCtx.createBufferSource();
+      silentSrc.buffer = silentBuf;
+      silentSrc.connect(audioCtx.destination);
+      silentSrc.start(0);
+    }
+  } catch {}
 
   // Pre-unlock shared HTML5 audio element
   try {
@@ -93,6 +111,18 @@ export async function generateBurmeseAudioBlob({
 }): Promise<GeneratedAudioResult> {
   const normalizedText = normalizeMyanmarForTTS(text);
   const targetVoice = voice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural';
+  const effectiveBasePitch = typeof voice.basePitchHz === 'number' ? voice.basePitchHz : (voice.gender === 'male' ? -18 : 8);
+  const finalPitch = Math.round(effectiveBasePitch + (pitchOffsetHz || 0));
+
+  const cacheKey = `${voice.id}_${finalPitch}_${speedMultiplier}_${normalizedText}`;
+  const cached = audioBlobCache.get(cacheKey);
+  if (cached) {
+    return {
+      blob: cached.blob,
+      blobUrl: cached.blobUrl,
+      mimeType: 'audio/mpeg',
+    };
+  }
 
   // 1. Primary: Server /api/tts endpoint (Zero CORS/403 errors, Edge-TTS Neural + Google Cloud fallback)
   try {
@@ -103,8 +133,10 @@ export async function generateBurmeseAudioBlob({
         text: normalizedText,
         voice: targetVoice,
         voiceGender: voice.gender,
+        voiceId: voice.id,
         rate: speedMultiplier,
         pitchOffset: pitchOffsetHz,
+        basePitchHz: voice.basePitchHz,
       }),
     });
 
@@ -112,6 +144,7 @@ export async function generateBurmeseAudioBlob({
       const audioBlob = await resp.blob();
       if (audioBlob.size > 50) {
         const blobUrl = URL.createObjectURL(audioBlob);
+        audioBlobCache.set(cacheKey, { blob: audioBlob, blobUrl });
         return {
           blob: audioBlob,
           blobUrl,
@@ -156,6 +189,7 @@ export async function generateBurmeseAudioBlob({
         // Strict MP3 MIME type
         const audioBlob = new Blob([bytes.buffer], { type: 'audio/mpeg' });
         const blobUrl = URL.createObjectURL(audioBlob);
+        audioBlobCache.set(cacheKey, { blob: audioBlob, blobUrl });
 
         return {
           blob: audioBlob,
@@ -182,6 +216,7 @@ export async function generateBurmeseAudioBlob({
       if (arrayBuf.byteLength > 50) {
         const audioBlob = new Blob([arrayBuf], { type: 'audio/mpeg' });
         const blobUrl = URL.createObjectURL(audioBlob);
+        audioBlobCache.set(cacheKey, { blob: audioBlob, blobUrl });
         return {
           blob: audioBlob,
           blobUrl,
@@ -193,28 +228,6 @@ export async function generateBurmeseAudioBlob({
     console.warn('Server stream fetch error:', fallbackErr);
   }
 
-  // 4. Fallback: Multi-CDN Direct Stream Fetch
-  try {
-    const cleanSlice = normalizedText.slice(0, 180).trim();
-    const encoded = encodeURIComponent(cleanSlice);
-    const googleStreamUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=my&q=${encoded}`;
-    const directResp = await fetch(googleStreamUrl);
-    if (directResp.ok) {
-      const arrayBuf = await directResp.arrayBuffer();
-      if (arrayBuf.byteLength > 50) {
-        const audioBlob = new Blob([arrayBuf], { type: 'audio/mpeg' });
-        const blobUrl = URL.createObjectURL(audioBlob);
-        return {
-          blob: audioBlob,
-          blobUrl,
-          mimeType: 'audio/mpeg',
-        };
-      }
-    }
-  } catch (directErr) {
-    console.warn('Multi-CDN Direct stream fetch error:', directErr);
-  }
-
   // Final Empty Safe Blob to prevent crashes
   const fallbackBlob = new Blob([], { type: 'audio/mpeg' });
   return {
@@ -223,102 +236,6 @@ export async function generateBurmeseAudioBlob({
     mimeType: 'audio/mpeg',
   };
 }
-
-/**
- * Builds multi-CDN streaming audio sources for zero-fail Myanmar audio playback
- */
-function getMultiCdnMyanmarAudioUrls(
-  text: string,
-  voice?: BurmeseVoiceAvatar,
-  speed: number = 1.0,
-  pitchOffsetHz: number = 0
-): string[] {
-  const sampleText = text.trim() || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်';
-  const encoded = encodeURIComponent(sampleText.substring(0, 180));
-  const gender = voice?.gender || 'female';
-  const voiceId = voice?.id || '';
-  const voiceName = voice?.voiceName || voice?.voiceModel || '';
-
-  return [
-    // 1. Primary Reliable Serverless Edge-TTS Endpoint (Zero CORS)
-    `/api/tts?text=${encoded}&gender=${gender}&voiceId=${voiceId}&voiceName=${encodeURIComponent(
-      voiceName
-    )}&pitchOffset=${pitchOffsetHz}&rate=${speed}`,
-    // 2. Server-Side Direct Stream Endpoint with Edge Neural Voice Engine
-    `/api/stream-tts?text=${encoded}&gender=${gender}&voiceId=${voiceId}&voiceName=${encodeURIComponent(
-      voiceName
-    )}&pitchOffset=${pitchOffsetHz}&speedMultiplier=${speed}`,
-    // 3. Primary Multi-CDN Audio Source (Google Translate TTS)
-    `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=my&q=${encoded}`,
-    // 4. Fallback Multi-CDN Stream (Youdao Myanmar Audio Source)
-    `https://dict.youdao.com/dictvoice?audio=${encoded}&le=my`,
-    // 5. Fallback Multi-CDN Stream (Google Translate GTX)
-    `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encoded}`,
-  ];
-}
-
-/**
- * Play authentic spoken Myanmar speech directly with Multi-CDN Zero-Fail Audio Pipeline
- */
-export const playMyanmarAudio = (text: string, speed: number = 1.0): Promise<boolean> => {
-  return new Promise(async (resolve, reject) => {
-    // Stop any previously playing audio
-    if (currentActiveAudio) {
-      try {
-        currentActiveAudio.pause();
-        currentActiveAudio.currentTime = 0;
-      } catch {}
-      currentActiveAudio = null;
-    }
-
-    const clean = text.trim();
-    if (!clean) {
-      resolve(true);
-      return;
-    }
-
-    await unlockAudioContext();
-
-    const normalized = normalizeMyanmarForTTS(clean);
-    const urls = getMultiCdnMyanmarAudioUrls(normalized, undefined, speed);
-
-    const audio = getSharedPreviewAudio();
-    audio.volume = 1.0;
-    audio.muted = false;
-    audio.playbackRate = Math.max(0.5, Math.min(2.0, speed || 1.0));
-    currentActiveAudio = audio;
-
-    let urlIndex = 0;
-
-    const tryNextUrl = () => {
-      if (urlIndex >= urls.length) {
-        if (currentActiveAudio === audio) currentActiveAudio = null;
-        reject(new Error('All Multi-CDN Myanmar audio streams failed'));
-        return;
-      }
-
-      const nextUrl = urls[urlIndex++];
-      audio.src = nextUrl;
-
-      audio.play().catch((playErr) => {
-        console.warn(`Audio play failed for source index ${urlIndex - 1}, trying next source...`, playErr);
-        tryNextUrl();
-      });
-    };
-
-    audio.onended = () => {
-      if (currentActiveAudio === audio) currentActiveAudio = null;
-      resolve(true);
-    };
-
-    audio.onerror = () => {
-      console.warn(`Audio error for source index ${urlIndex - 1}, trying next source...`);
-      tryNextUrl();
-    };
-
-    tryNextUrl();
-  });
-};
 
 export interface PlayVoicePreviewOptions {
   voice?: BurmeseVoiceAvatar;
@@ -329,21 +246,91 @@ export interface PlayVoicePreviewOptions {
 }
 
 /**
+ * Plays audio using Web Audio API AudioBufferSourceNode (zero stutter, zero mobile autoplay issue)
+ */
+async function playAudioBufferWithWebAudio(
+  buffer: AudioBuffer,
+  speed: number = 1.0,
+  onEnded?: () => void
+): Promise<{ stop: () => void }> {
+  const ctx = await unlockAudioContext();
+
+  // Stop any active node
+  if (currentSourceNode) {
+    try {
+      currentSourceNode.stop();
+      currentSourceNode.disconnect();
+    } catch {}
+    currentSourceNode = null;
+  }
+
+  const sourceNode = ctx.createBufferSource();
+  sourceNode.buffer = buffer;
+  sourceNode.playbackRate.value = Math.max(0.5, Math.min(2.0, speed || 1.0));
+
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = 1.0;
+
+  sourceNode.connect(gainNode);
+  gainNode.connect(ctx.destination);
+
+  currentSourceNode = sourceNode;
+  currentGainNode = gainNode;
+
+  let isStopped = false;
+
+  const stop = () => {
+    if (isStopped) return;
+    isStopped = true;
+    try {
+      sourceNode.stop();
+      sourceNode.disconnect();
+    } catch {}
+    if (currentSourceNode === sourceNode) {
+      currentSourceNode = null;
+      currentGainNode = null;
+    }
+    if (onEnded) onEnded();
+  };
+
+  sourceNode.onended = () => {
+    if (!isStopped) {
+      isStopped = true;
+      if (currentSourceNode === sourceNode) {
+        currentSourceNode = null;
+        currentGainNode = null;
+      }
+      if (onEnded) onEnded();
+    }
+  };
+
+  sourceNode.start(0);
+
+  return { stop };
+}
+
+/**
  * Authentic Natural Myanmar Speech Synthesis Engine for previewing all 40 voice models on mobile/desktop
+ * - Uses Web Audio API Decoded Buffer playback for 0ms lag, zero stutter, and zero browser blocking.
  * - Supports both object signature ({ voice, pitchOffsetHz, speedMultiplier, customText, onEnded })
  *   and positional signature (text, voiceId, speed).
- * - Multi-CDN zero-fail audio pipeline.
- * - Zero dependency on window.speechSynthesis.
  */
 export async function playVoicePreview(
   arg1: PlayVoicePreviewOptions | string,
   arg2?: string | number,
   arg3?: number
 ): Promise<{ stop: () => void }> {
-  // 1. Immediately unlock and resume AudioContext within user touch/click gesture
-  await unlockAudioContext();
+  // 1. Immediately unlock AudioContext and HTML5 Audio during the user tap/click gesture
+  const ctx = await unlockAudioContext();
 
-  // Stop any previously playing audio
+  // Stop any previous audio
+  if (currentSourceNode) {
+    try {
+      currentSourceNode.stop();
+      currentSourceNode.disconnect();
+    } catch {}
+    currentSourceNode = null;
+  }
   if (currentActiveAudio) {
     try {
       currentActiveAudio.pause();
@@ -360,13 +347,11 @@ export async function playVoicePreview(
   let onEndedCallback: (() => void) | undefined;
 
   if (typeof arg1 === 'string') {
-    // Positional signature: (text, voiceId, speed)
     rawText = arg1;
     const voiceId = typeof arg2 === 'string' ? arg2 : '';
     speedMultiplier = typeof arg3 === 'number' ? arg3 : (typeof arg2 === 'number' ? arg2 : 1.0);
     targetVoice = BURMESE_VOICE_AVATARS.find((v) => v.id === voiceId) || BURMESE_VOICE_AVATARS[0];
   } else {
-    // Object signature: ({ voice, pitchOffsetHz, speedMultiplier, customText, onEnded })
     const opts = arg1 || {};
     targetVoice = opts.voice || BURMESE_VOICE_AVATARS[0];
     pitchOffsetHz = opts.pitchOffsetHz || 0;
@@ -377,16 +362,27 @@ export async function playVoicePreview(
 
   const sampleText = rawText.trim() || targetVoice.samplePhraseBurmese || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်';
   const normalizedText = normalizeMyanmarForTTS(sampleText);
+  const effectiveSpeed = Math.max(0.5, Math.min(2.0, (targetVoice.baseRate || 1.0) * (speedMultiplier || 1.0)));
+
+  const effectiveBasePitch = typeof targetVoice.basePitchHz === 'number' ? targetVoice.basePitchHz : (targetVoice.gender === 'male' ? -18 : 8);
+  const finalPitch = Math.round(effectiveBasePitch + (pitchOffsetHz || 0));
+  const cacheKey = `${targetVoice.id}_${finalPitch}_${effectiveSpeed}_${normalizedText}`;
 
   let isStopped = false;
+  let innerController: { stop: () => void } | null = null;
 
   const stopAll = () => {
     isStopped = true;
-    if (sharedPreviewAudio) {
+    if (innerController) {
+      innerController.stop();
+      innerController = null;
+    }
+    if (currentSourceNode) {
       try {
-        sharedPreviewAudio.pause();
-        sharedPreviewAudio.currentTime = 0;
+        currentSourceNode.stop();
+        currentSourceNode.disconnect();
       } catch {}
+      currentSourceNode = null;
     }
     if (currentActiveAudio) {
       try {
@@ -398,80 +394,115 @@ export async function playVoicePreview(
     if (onEndedCallback) onEndedCallback();
   };
 
-  const effectiveSpeed = Math.max(
-    0.5,
-    Math.min(2.0, (targetVoice.baseRate || 1.0) * (speedMultiplier || 1.0))
-  );
+  // 1. Check in-memory decoded Web Audio buffer cache
+  const cachedBuffer = audioBufferCache.get(cacheKey);
+  if (cachedBuffer) {
+    playAudioBufferWithWebAudio(cachedBuffer, effectiveSpeed, () => {
+      if (!isStopped && onEndedCallback) onEndedCallback();
+    }).then((ctrl) => {
+      if (isStopped) {
+        ctrl.stop();
+      } else {
+        innerController = ctrl;
+      }
+    });
+    return { stop: stopAll };
+  }
 
-  const urls = getMultiCdnMyanmarAudioUrls(
-    normalizedText,
-    targetVoice,
-    effectiveSpeed,
-    pitchOffsetHz
-  );
+  // 2. Fetch fresh MP3 buffer from backend server (with fast internal fallback)
+  (async () => {
+    try {
+      const resp = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: normalizedText,
+          voice: targetVoice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural',
+          voiceGender: targetVoice.gender,
+          voiceId: targetVoice.id,
+          rate: effectiveSpeed,
+          pitchOffset: pitchOffsetHz,
+          basePitchHz: targetVoice.basePitchHz,
+        }),
+      });
 
-  const audio = getSharedPreviewAudio();
-  currentActiveAudio = audio;
-  audio.volume = 1.0;
-  audio.muted = false;
-  audio.playbackRate = effectiveSpeed;
+      if (!resp.ok) {
+        throw new Error(`TTS server responded with status: ${resp.status}`);
+      }
 
-  let urlIndex = 0;
+      const arrayBuffer = await resp.arrayBuffer();
+      if (isStopped) return;
 
-  const tryNextUrl = () => {
-    if (isStopped) return;
+      if (arrayBuffer.byteLength > 50) {
+        // Decode Web Audio buffer
+        try {
+          const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+          audioBufferCache.set(cacheKey, decoded);
 
-    if (urlIndex >= urls.length) {
-      // Fallback: try synthesizing genuine blob
-      generateBurmeseAudioBlob({
-        text: normalizedText,
-        voice: targetVoice,
-        pitchOffsetHz,
-        speedMultiplier,
-      })
-        .then((res) => {
-          if (res.blobUrl && !isStopped) {
-            audio.src = res.blobUrl;
-            audio.play().catch(() => {
-              if (onEndedCallback) onEndedCallback();
+          if (!isStopped) {
+            const ctrl = await playAudioBufferWithWebAudio(decoded, effectiveSpeed, () => {
+              if (!isStopped && onEndedCallback) onEndedCallback();
             });
-          } else {
-            if (onEndedCallback) onEndedCallback();
+            innerController = ctrl;
+            return;
           }
-        })
-        .catch(() => {
-          if (onEndedCallback) onEndedCallback();
-        });
+        } catch (decodeErr) {
+          console.warn('Web Audio decode failed, playing with HTMLAudioElement fallback:', decodeErr);
+        }
+
+        // HTML5 Audio fallback
+        if (!isStopped) {
+          const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+          const blobUrl = URL.createObjectURL(blob);
+          const audio = getSharedPreviewAudio();
+          currentActiveAudio = audio;
+          audio.src = blobUrl;
+          audio.volume = 1.0;
+          audio.muted = false;
+          audio.playbackRate = effectiveSpeed;
+
+          audio.onended = () => {
+            URL.revokeObjectURL(blobUrl);
+            if (currentActiveAudio === audio) currentActiveAudio = null;
+            if (!isStopped && onEndedCallback) onEndedCallback();
+          };
+
+          audio.onerror = () => {
+            URL.revokeObjectURL(blobUrl);
+            if (!isStopped && onEndedCallback) onEndedCallback();
+          };
+
+          await audio.play();
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('playVoicePreview synthesis error:', err);
+      if (!isStopped && onEndedCallback) onEndedCallback();
+    }
+  })();
+
+  return { stop: stopAll };
+}
+
+/**
+ * Play authentic spoken Myanmar speech directly with Multi-Tier Zero-Fail Audio Pipeline
+ */
+export const playMyanmarAudio = (text: string, speed: number = 1.0): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const clean = text.trim();
+    if (!clean) {
+      resolve(true);
       return;
     }
 
-    const currentUrl = urls[urlIndex++];
-    audio.src = currentUrl;
-
-    audio.play().catch((err) => {
-      console.warn(`Direct stream failed for index ${urlIndex - 1}, trying fallback audio synth...`, err);
-      tryNextUrl();
-    });
-  };
-
-  audio.onended = () => {
-    if (currentActiveAudio === audio) currentActiveAudio = null;
-    if (!isStopped && onEndedCallback) onEndedCallback();
-  };
-
-  audio.onerror = () => {
-    if (!isStopped) {
-      console.warn(`Audio stream error on index ${urlIndex - 1}, attempting next fallback stream...`);
-      tryNextUrl();
-    }
-  };
-
-  tryNextUrl();
-
-  return {
-    stop: stopAll,
-  };
-}
+    playVoicePreview({
+      customText: clean,
+      speedMultiplier: speed,
+      onEnded: () => resolve(true),
+    }).catch(() => resolve(true));
+  });
+};
 
 /**
  * Generate SRT subtitle string from segments
@@ -515,4 +546,5 @@ export function downloadFile(content: string | Blob, fileName: string, mimeType:
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
 

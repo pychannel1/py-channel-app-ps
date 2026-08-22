@@ -402,6 +402,10 @@ app.post("/api/transcribe-assembly", async (req, res) => {
   }
 });
 
+// In-Memory TTS Audio Buffer Cache for instant 0ms playback of voice previews and repeat lines
+const ttsMemoryCache = new Map<string, { buffer: Buffer; source: string; voiceName: string; timestamp: number }>();
+const MAX_TTS_CACHE_ENTRIES = 500;
+
 // Helper function to synthesize Burmese audio buffer (Edge TTS -> Google Myanmar TTS)
 async function generateBurmeseAudioBuffer({
   text,
@@ -416,28 +420,46 @@ async function generateBurmeseAudioBuffer({
   speedMultiplier?: number;
   basePitchHz?: number;
 }): Promise<{ buffer: Buffer; source: string; voiceName: string }> {
+  const cleanText = text.trim();
   const selectedVoiceName = isMale ? "my-MM-ThihaNeural" : "my-MM-NilarNeural";
   const effectiveBasePitch = typeof basePitchHz === "number" ? basePitchHz : (isMale ? -18 : 8);
   const finalPitchHz = Math.round(effectiveBasePitch + (Number(pitchOffset) || 0));
+  const roundedSpeed = Math.round(Number(speedMultiplier || 1.0) * 100) / 100;
 
-  // 1. Try Microsoft Edge Neural TTS with 3s timeout
+  const cacheKey = `${selectedVoiceName}_${finalPitchHz}_${roundedSpeed}_${cleanText}`;
+  const cached = ttsMemoryCache.get(cacheKey);
+  if (cached) {
+    return { buffer: cached.buffer, source: `${cached.source}_cached`, voiceName: cached.voiceName };
+  }
+
+  // 1. Try Microsoft Edge Neural TTS
   try {
     const audioBuffer = await synthesizeWithEdgeTTS({
-      text: text.trim(),
+      text: cleanText,
       voiceName: selectedVoiceName,
       pitchHz: finalPitchHz,
-      rateMultiplier: Number(speedMultiplier) || 1.0,
+      rateMultiplier: roundedSpeed,
     });
 
     if (audioBuffer && audioBuffer.length > 50) {
+      if (ttsMemoryCache.size >= MAX_TTS_CACHE_ENTRIES) {
+        const firstKey = ttsMemoryCache.keys().next().value;
+        if (firstKey) ttsMemoryCache.delete(firstKey);
+      }
+      ttsMemoryCache.set(cacheKey, {
+        buffer: audioBuffer,
+        source: "edge_neural_tts",
+        voiceName: selectedVoiceName,
+        timestamp: Date.now(),
+      });
       return { buffer: audioBuffer, source: "edge_neural_tts", voiceName: selectedVoiceName };
     }
   } catch (edgeErr) {
     console.warn("Edge Neural TTS fallback to Google Myanmar engine:", edgeErr);
   }
 
-  // 2. Fallback to Google Myanmar TTS Proxy
-  const splitIntoTTSChunks = (str: string, maxLength = 100): string[] => {
+  // 2. Fallback to Fast Parallel Google Myanmar TTS Proxy
+  const splitIntoTTSChunks = (str: string, maxLength = 80): string[] => {
     const parts = str.split(/([၊။\n!?]+)/);
     const chunks: string[] = [];
     let current = "";
@@ -462,19 +484,18 @@ async function generateBurmeseAudioBuffer({
     return chunks.filter((c) => c.length > 0);
   };
 
-  const textChunks = splitIntoTTSChunks(text.trim());
-  const audioBuffers: Buffer[] = [];
+  const textChunks = splitIntoTTSChunks(cleanText);
+  if (textChunks.length === 0) textChunks.push(cleanText);
 
-  for (const chunk of textChunks) {
-    if (!chunk.trim()) continue;
+  // Fetch all chunks in parallel for zero latency
+  const chunkFetchPromises = textChunks.map(async (chunk) => {
+    if (!chunk.trim()) return null;
     const endpoints = [
       `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
-      `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(chunk)}&le=my`,
       `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encodeURIComponent(chunk)}`,
-      `https://translate.google.com.sg/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
+      `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(chunk)}&le=my`,
     ];
 
-    let chunkBuffer: Buffer | null = null;
     for (const ttsUrl of endpoints) {
       try {
         const ttsResp = await fetch(ttsUrl, {
@@ -488,23 +509,33 @@ async function generateBurmeseAudioBuffer({
         if (ttsResp.ok) {
           const arrayBuffer = await ttsResp.arrayBuffer();
           if (arrayBuffer.byteLength > 50) {
-            chunkBuffer = Buffer.from(arrayBuffer);
-            break;
+            return Buffer.from(arrayBuffer);
           }
         }
-      } catch (err) {
+      } catch {
         // Try next endpoint
       }
     }
+    return null;
+  });
 
-    if (chunkBuffer) {
-      audioBuffers.push(chunkBuffer);
+  const fetchedChunks = await Promise.all(chunkFetchPromises);
+  const validBuffers = fetchedChunks.filter((b): b is Buffer => b !== null && b.length > 0);
+
+  if (validBuffers.length > 0) {
+    const combined = Buffer.concat(validBuffers);
+    if (ttsMemoryCache.size >= MAX_TTS_CACHE_ENTRIES) {
+      const firstKey = ttsMemoryCache.keys().next().value;
+      if (firstKey) ttsMemoryCache.delete(firstKey);
     }
-  }
-
-  if (audioBuffers.length > 0) {
+    ttsMemoryCache.set(cacheKey, {
+      buffer: combined,
+      source: "google_myanmar_tts",
+      voiceName: selectedVoiceName,
+      timestamp: Date.now(),
+    });
     return {
-      buffer: Buffer.concat(audioBuffers),
+      buffer: combined,
       source: "google_myanmar_tts",
       voiceName: selectedVoiceName,
     };

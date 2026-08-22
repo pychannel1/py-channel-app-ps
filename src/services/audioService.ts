@@ -1,5 +1,5 @@
-import { BurmeseVoiceAvatar } from '../types';
 import { normalizeMyanmarForTTS } from '../utils/myanmarTextNormalizer';
+import { unlockAudioContext } from '../utils/audioSynthesis';
 
 let activeAudioElement: HTMLAudioElement | null = null;
 
@@ -117,6 +117,9 @@ export async function playMyanmarSpeech(
   pitchOffset: number = 0,
   onEnded?: () => void
 ): Promise<{ stop: () => void }> {
+  // Unlock audio
+  await unlockAudioContext();
+
   // Stop existing audio
   if (activeAudioElement) {
     try {
@@ -175,3 +178,4 @@ export async function playMyanmarSpeech(
 
   return { stop: stopAudio };
 }
+

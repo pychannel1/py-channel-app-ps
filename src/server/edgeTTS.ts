@@ -24,61 +24,66 @@ export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): 
       ? 'my-MM-NilarNeural'
       : voiceName || 'my-MM-ThihaNeural';
 
-  const tts = new MsEdgeTTS();
-  await tts.setMetadata(targetVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+  try {
+    const tts = new MsEdgeTTS();
+    await tts.setMetadata(targetVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
 
-  // Format Prosody & Pitch string (+5Hz, -15Hz)
-  const pitchStr = pitchHz >= 0 ? `+${Math.round(pitchHz)}Hz` : `${Math.round(pitchHz)}Hz`;
-  const ratePercent = Math.round((rateMultiplier - 1.0) * 100);
-  const rateStr = ratePercent >= 0 ? `+${ratePercent}%` : `${ratePercent}%`;
+    // Format Prosody & Pitch string (+5Hz, -15Hz)
+    const pitchStr = pitchHz >= 0 ? `+${Math.round(pitchHz)}Hz` : `${Math.round(pitchHz)}Hz`;
+    const ratePercent = Math.round((rateMultiplier - 1.0) * 100);
+    const rateStr = ratePercent >= 0 ? `+${ratePercent}%` : `${ratePercent}%`;
 
-  const { audioStream } = tts.toStream(text, {
-    pitch: pitchStr,
-    rate: rateStr,
-  });
-
-  return new Promise<Buffer>((resolve, reject) => {
-    const audioChunks: Buffer[] = [];
-    let isDone = false;
-
-    // Snappy 3-second timeout to quickly fallback to Google Neural TTS if Edge websocket has latency
-    const timeout = setTimeout(() => {
-      if (!isDone) {
-        isDone = true;
-        if (audioChunks.length > 0) {
-          resolve(Buffer.concat(audioChunks));
-        } else {
-          reject(new Error(`Edge TTS synthesis timed out for voice ${targetVoice}`));
-        }
-      }
-    }, 3000);
-
-    audioStream.on('data', (chunk: Buffer) => {
-      audioChunks.push(chunk);
+    const { audioStream } = tts.toStream(text, {
+      pitch: pitchStr,
+      rate: rateStr,
     });
 
-    audioStream.on('end', () => {
-      if (!isDone) {
-        isDone = true;
-        clearTimeout(timeout);
-        if (audioChunks.length > 0) {
-          resolve(Buffer.concat(audioChunks));
-        } else {
-          reject(new Error(`Empty audio stream received for voice ${targetVoice}`));
-        }
-      }
-    });
+    return await new Promise<Buffer>((resolve, reject) => {
+      const audioChunks: Buffer[] = [];
+      let isDone = false;
 
-    audioStream.on('error', (err: Error) => {
-      if (!isDone) {
-        isDone = true;
-        clearTimeout(timeout);
-        if (audioChunks.length > 0) {
-          resolve(Buffer.concat(audioChunks));
-        } else {
-          reject(err);
+      // 4-second timeout to quickly fallback to Google Neural TTS if Edge websocket is slow
+      const timeout = setTimeout(() => {
+        if (!isDone) {
+          isDone = true;
+          if (audioChunks.length > 0) {
+            resolve(Buffer.concat(audioChunks));
+          } else {
+            reject(new Error(`Edge TTS synthesis timed out for voice ${targetVoice}`));
+          }
         }
-      }
+      }, 4000);
+
+      audioStream.on('data', (chunk: Buffer) => {
+        audioChunks.push(chunk);
+      });
+
+      audioStream.on('end', () => {
+        if (!isDone) {
+          isDone = true;
+          clearTimeout(timeout);
+          if (audioChunks.length > 0) {
+            resolve(Buffer.concat(audioChunks));
+          } else {
+            reject(new Error(`Empty audio stream received for voice ${targetVoice}`));
+          }
+        }
+      });
+
+      audioStream.on('error', (err: Error) => {
+        if (!isDone) {
+          isDone = true;
+          clearTimeout(timeout);
+          if (audioChunks.length > 0) {
+            resolve(Buffer.concat(audioChunks));
+          } else {
+            reject(err);
+          }
+        }
+      });
     });
-  });
+  } catch (err: any) {
+    throw new Error(`Edge TTS setup failure: ${err.message || err}`);
+  }
 }
+
