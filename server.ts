@@ -77,22 +77,44 @@ app.post("/api/test-gemini-key", async (req, res) => {
       },
     });
 
-    const testResp = await testClient.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: "Hello! Reply with 'OK'",
-    });
+    const candidateModels = [
+      "gemini-3.6-flash",
+      "gemini-3.7-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
+      "gemini-flash-latest",
+    ];
 
-    if (testResp && testResp.text) {
+    let lastError: any = null;
+    let verifiedModel = "";
+
+    for (const testModel of candidateModels) {
+      try {
+        const testResp = await testClient.models.generateContent({
+          model: testModel,
+          contents: "Hello! Reply with 'OK'",
+        });
+
+        if (testResp && (testResp.text || testResp.candidates)) {
+          verifiedModel = testModel;
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        // Continue to next candidate model if 404 or model unavailable
+        continue;
+      }
+    }
+
+    if (verifiedModel) {
       return res.json({
         success: true,
-        message: "Gemini API ချိတ်ဆက်မှု အောင်မြင်ပါသည်",
-      });
-    } else {
-      return res.status(400).json({
-        success: false,
-        error: "Gemini API မှ တုံ့ပြန်မှု မရရှိပါ။ API Key ကို စစ်ဆေးပေးပါ။",
+        message: `Gemini API ချိတ်ဆက်မှု အောင်မြင်ပါသည် (${verifiedModel})`,
+        model: verifiedModel,
       });
     }
+
+    throw lastError || new Error("Gemini API မှ တုံ့ပြန်မှု မရရှိပါ။ API Key ကို စစ်ဆေးပေးပါ။");
   } catch (error: any) {
     console.error("Gemini API key verification error:", error);
     return res.status(400).json({
@@ -111,7 +133,7 @@ app.post("/api/translate-recap", async (req, res) => {
       targetTone = "exciting",
       apiKey,
       customSystemPrompt,
-      model = "gemini-2.5-flash",
+      model = "gemini-3.6-flash",
     } = req.body;
 
     if (!segments || !Array.isArray(segments) || segments.length === 0) {
@@ -147,20 +169,49 @@ CRITICAL SPOKEN BURMESE & VOICE-OVER PROSODY GUIDELINES:
 ${JSON.stringify(segments.map(s => ({ id: s.id, time: `${s.start} - ${s.end}`, text: s.sourceText })), null, 2)}`;
 
     // Validate model name to ensure valid Gemini model
-    const allowedModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.7-flash"];
-    const chosenModel = allowedModels.includes(model) ? model : "gemini-2.5-flash";
+    const allowedModels = [
+      "gemini-3.6-flash",
+      "gemini-3.7-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
+      "gemini-3.1-pro-preview",
+      "gemini-3.1-flash-lite",
+      "gemini-flash-latest"
+    ];
+    const preferredModel = allowedModels.includes(model) ? model : "gemini-3.6-flash";
+    const modelsToTry = [preferredModel, ...allowedModels.filter(m => m !== preferredModel)];
 
-    const response = await ai.models.generateContent({
-      model: chosenModel,
-      contents: prompt,
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: "application/json",
-        temperature: 0.7,
-      },
-    });
+    let responseText = "";
+    let finalModelUsed = preferredModel;
+    let lastError: any = null;
 
-    const responseText = response.text || "{}";
+    for (const modelCandidate of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelCandidate,
+          contents: prompt,
+          config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: "application/json",
+            temperature: 0.7,
+          },
+        });
+
+        if (response && response.text) {
+          responseText = response.text;
+          finalModelUsed = modelCandidate;
+          break;
+        }
+      } catch (err) {
+        lastError = err;
+        continue;
+      }
+    }
+
+    if (!responseText) {
+      throw lastError || new Error("Gemini translation returned empty response");
+    }
+
     let parsed;
     try {
       parsed = JSON.parse(responseText);
@@ -173,7 +224,7 @@ ${JSON.stringify(segments.map(s => ({ id: s.id, time: `${s.start} - ${s.end}`, t
     res.json({
       success: true,
       translations: parsed.translations || parsed,
-      modelUsed: chosenModel,
+      modelUsed: finalModelUsed,
     });
   } catch (error: any) {
     console.error("Gemini translation error:", error);

@@ -101,7 +101,7 @@ export interface AdminConfig {
   maintenanceNotice: string;
   assemblyMasterKey: string;
   geminiMasterKey: string;
-  geminiModel: 'gemini-2.5-flash' | 'gemini-2.0-flash' | 'gemini-1.5-flash' | 'gemini-3.7-flash';
+  geminiModel: 'gemini-3.6-flash' | 'gemini-3.7-flash' | 'gemini-2.0-flash' | 'gemini-1.5-flash' | 'gemini-3.1-pro-preview' | 'gemini-3.1-flash-lite' | 'gemini-flash-latest';
   systemPrompt: string;
   systemPromptPreset: 'cinematic_hype' | 'dramatic_story' | 'fast_comedy' | 'suspense_horror' | 'custom';
   globalSpeed: number; // 0.8 to 1.4

@@ -812,10 +812,12 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                           onChange={(e) => setGeminiModel(e.target.value)}
                           className="w-full text-xs font-mono px-3 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-amber-300 focus:outline-none focus:border-amber-400"
                         >
-                          <option value="gemini-2.5-flash">gemini-2.5-flash (Fast & Accurate)</option>
-                          <option value="gemini-2.5-pro">gemini-2.5-pro (High Quality)</option>
-                          <option value="gemini-1.5-flash">gemini-1.5-flash (Legacy)</option>
-                          <option value="gemini-1.5-pro">gemini-1.5-pro (Legacy Pro)</option>
+                          <option value="gemini-3.6-flash">gemini-3.6-flash (Recommended, Fast & Stable)</option>
+                          <option value="gemini-3.7-flash">gemini-3.7-flash (Latest Flash)</option>
+                          <option value="gemini-2.0-flash">gemini-2.0-flash (Ultra Fast)</option>
+                          <option value="gemini-1.5-flash">gemini-1.5-flash (Standard)</option>
+                          <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (High Reasoning)</option>
+                          <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Ultra Low Latency)</option>
                         </select>
                       </div>
                     </div>

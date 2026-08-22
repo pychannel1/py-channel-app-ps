@@ -60,7 +60,7 @@ export const DEFAULT_ADMIN_CONFIG: AdminConfig = {
   maintenanceNotice: '🛠️ စနစ် အဆင့်မြှင့်တင်နေပါသည် (Under Maintenance) - မကြာမီ ပြန်လည် ဖွင့်လှစ်ပါမည်။ ရုပ်ရှင်ချစ်သူများအတွက် အသံသစ်များနှင့် စွမ်းဆောင်ရည်မြှင့်တင်မှုများ ထည့်သွင်းနေပါသဖြင့် ခေတ္တ စောင့်ဆိုင်းပေးပါရန် မေတ္တာရပ်ခံအပ်ပါသည်။',
   assemblyMasterKey: '',
   geminiMasterKey: '',
-  geminiModel: 'gemini-2.5-flash',
+  geminiModel: 'gemini-3.6-flash',
   systemPrompt: SYSTEM_PROMPT_PRESETS.cinematic_hype.prompt,
   systemPromptPreset: 'cinematic_hype',
   globalSpeed: 1.0,
