@@ -3,13 +3,36 @@ import { normalizeMyanmarForTTS, splitIntoProsodicPhrases } from './myanmarTextN
 
 let audioCtx: AudioContext | null = null;
 
-function getAudioContext(): AudioContext {
+/**
+ * Robust Audio Unlock for Web Audio API (Browser Autoplay Policy Compliance)
+ * Ensures AudioContext is created and immediately resumed during user gestures.
+ */
+export async function unlockAudioContext(): Promise<AudioContext> {
   if (!audioCtx) {
-    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     audioCtx = new AudioContextClass();
   }
   if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
+    try {
+      await audioCtx.resume();
+    } catch (e) {
+      console.warn('AudioContext resume exception:', e);
+    }
+  }
+  return audioCtx;
+}
+
+export function getAudioContext(): AudioContext {
+  if (!audioCtx) {
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    audioCtx = new AudioContextClass();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch((e) => console.warn('AudioContext resume exception:', e));
   }
   return audioCtx;
 }
@@ -93,6 +116,16 @@ export async function playVoicePreview({
   customText?: string;
   onEnded?: () => void;
 }): Promise<{ stop: () => void }> {
+  // 1. Immediately unlock and resume AudioContext within the user gesture event loop
+  const ctx = await unlockAudioContext();
+  if (ctx.state === 'suspended') {
+    try {
+      await ctx.resume();
+    } catch (e) {
+      console.warn('Could not resume AudioContext on gesture:', e);
+    }
+  }
+
   const rawText = customText || voice.samplePhraseBurmese;
   // Apply Phonetic & Text Normalization
   const normalizedText = normalizeMyanmarForTTS(rawText);
@@ -157,7 +190,6 @@ export async function playVoicePreview({
           bytes[i] = binaryString.charCodeAt(i);
         }
 
-        const ctx = getAudioContext();
         const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
 
         if (isStopped) return { stop: stopAll };
@@ -234,7 +266,6 @@ export async function playVoicePreview({
   }
 
   // Fallback: Enhanced Procedural Acoustic Formant Synthesizer
-  const ctx = getAudioContext();
   const proc = playProceduralBurmeseAcousticTone(ctx, voice, pitchOffsetHz, normalizedText, onEnded);
   proceduralVoiceStop = proc.stop;
 

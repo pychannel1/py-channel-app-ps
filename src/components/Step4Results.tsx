@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { TranscriptSegment, BurmeseVoiceAvatar } from '../types';
 import { Play, Pause, Download, RefreshCw, Film, Volume2, Sparkles, Sliders, CheckCircle2, Clock, Music2, Share2, Layers, Video } from 'lucide-react';
-import { generateSRT, downloadFile, playVoicePreview } from '../utils/audioSynthesis';
+import { generateSRT, downloadFile, playVoicePreview, unlockAudioContext } from '../utils/audioSynthesis';
 import { renderMirroredRecapVideo } from '../utils/videoRenderEngine';
 
 interface Step4ResultsProps {
@@ -181,6 +181,7 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
       }
       setAudioPreviewPlaying(false);
     } else {
+      await unlockAudioContext();
       setIsPlaying(false);
       setAudioPreviewPlaying(true);
       const combinedBurmeseText = segments

@@ -78,6 +78,13 @@ export async function renderMirroredRecapVideo({
       // 3. Audio Context & Stream routing
       const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioCtxClass();
+      if (audioCtx.state === 'suspended') {
+        try {
+          await audioCtx.resume();
+        } catch (e) {
+          console.warn('AudioContext resume in videoRenderEngine:', e);
+        }
+      }
       const destNode = audioCtx.createMediaStreamDestination();
 
       let videoAudioSource: MediaElementAudioSourceNode | null = null;

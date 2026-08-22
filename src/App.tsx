@@ -12,7 +12,9 @@ import { SAMPLE_MOVIES } from './data/sampleMovies';
 import { BURMESE_VOICE_AVATARS } from './data/burmeseVoices';
 import { loadAdminConfig, saveAdminConfig } from './data/adminDefaults';
 import { getPlanById } from './data/pricingPlans';
+import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { Header } from './components/Header';
+import { SidebarDrawer, SidebarNavItem } from './components/SidebarDrawer';
 import { StepIndicator } from './components/StepIndicator';
 import { Step1Upload } from './components/Step1Upload';
 import { Step2SourceText } from './components/Step2SourceText';
@@ -21,15 +23,35 @@ import { Step4Results } from './components/Step4Results';
 import { MaintenanceScreen } from './components/MaintenanceScreen';
 import { AdminPortalModal } from './components/AdminPortalModal';
 import { UserSettingsModal } from './components/UserSettingsModal';
-import { playVoicePreview } from './utils/audioSynthesis';
+import { TranscriptHubModal } from './components/TranscriptHubModal';
+import { OrdersModal } from './components/OrdersModal';
+import { DownloadsModal } from './components/DownloadsModal';
+import { ProfileModal } from './components/ProfileModal';
+import { SupportModal } from './components/SupportModal';
+import { LogoutModal } from './components/LogoutModal';
+import { playVoicePreview, unlockAudioContext } from './utils/audioSynthesis';
 
-export default function App() {
+function MainStudioApp() {
+  const { language, t } = useLanguage();
+
   // Admin Configuration State (PIN-protected & Master Keys)
   const [adminConfig, setAdminConfig] = useState<AdminConfig>(loadAdminConfig);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     return sessionStorage.getItem('pychannel_admin_auth') === 'true';
   });
   const [isAdminPortalOpen, setIsAdminPortalOpen] = useState<boolean>(false);
+
+  // Sidebar Drawer State
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  const [activeSidebarItem, setActiveSidebarItem] = useState<SidebarNavItem>('studio');
+
+  // Modular Workspace Modals State
+  const [isTranscriptHubOpen, setIsTranscriptHubOpen] = useState<boolean>(false);
+  const [isOrdersOpen, setIsOrdersOpen] = useState<boolean>(false);
+  const [isDownloadsOpen, setIsDownloadsOpen] = useState<boolean>(false);
+  const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
+  const [isSupportOpen, setIsSupportOpen] = useState<boolean>(false);
+  const [isLogoutOpen, setIsLogoutOpen] = useState<boolean>(false);
 
   // User Settings Modal State
   const [isUserSettingsOpen, setIsUserSettingsOpen] = useState<boolean>(false);
@@ -202,6 +224,44 @@ export default function App() {
   const handleOpenUserSettings = (tab: 'api' | 'vip' = 'vip') => {
     setUserSettingsTab(tab);
     setIsUserSettingsOpen(true);
+  };
+
+  // Sidebar Menu Dispatcher
+  const handleSelectSidebarItem = (item: SidebarNavItem) => {
+    setActiveSidebarItem(item);
+    switch (item) {
+      case 'studio':
+        // Remain on Studio
+        break;
+      case 'transcript-hub':
+        setIsTranscriptHubOpen(true);
+        break;
+      case 'buy-vip':
+        handleOpenUserSettings('vip');
+        break;
+      case 'orders':
+        setIsOrdersOpen(true);
+        break;
+      case 'downloads':
+        setIsDownloadsOpen(true);
+        break;
+      case 'profile':
+        setIsProfileOpen(true);
+        break;
+      case 'support':
+        setIsSupportOpen(true);
+        break;
+      case 'logout':
+        setIsLogoutOpen(true);
+        break;
+    }
+  };
+
+  const handleConfirmLogout = () => {
+    sessionStorage.clear();
+    setIsAdminAuthenticated(false);
+    setIsLogoutOpen(false);
+    handleStartNewProject();
   };
 
   // =========================================================================
@@ -434,6 +494,9 @@ export default function App() {
     customText?: string,
     specificVoice?: BurmeseVoiceAvatar
   ) => {
+    // Robust Audio Unlock for Browser Autoplay Compliance
+    await unlockAudioContext();
+
     if (activeVoiceController) {
       activeVoiceController.stop();
       setActiveVoiceController(null);
@@ -470,20 +533,35 @@ export default function App() {
   };
 
   const handleStartVoiceSynthesis = async () => {
+    // Robust Audio Unlock for Browser Autoplay Compliance
+    await unlockAudioContext();
+
     handleStopVoicePreview();
     setIsSynthesizingVoice(true);
     setIsRendering(true);
     setRenderProgress(10);
-    setRenderPhase('၁/၃။ မြန်မာအသံဖိုင် စီစဉ်ဖန်တီးခြင်း (Neural TTS Synthesis)...');
+    setRenderPhase(
+      language === 'mm'
+        ? '၁/၃။ မြန်မာအသံဖိုင် စီစဉ်ဖန်တီးခြင်း (Neural TTS Synthesis)...'
+        : '1/3. Synthesizing Burmese Neural Voice...'
+    );
     setCurrentStep(4);
 
     try {
       await new Promise((r) => setTimeout(r, 900));
       setRenderProgress(45);
-      setRenderPhase('၂/၃။ AI Stretch/Compress Engine ဖြင့် ဗီဒီယိုနှင့် အသံ အချိန်ကိုက် ညှိခြင်း...');
+      setRenderPhase(
+        language === 'mm'
+          ? '၂/၃။ AI Stretch/Compress Engine ဖြင့် ဗီဒီယိုနှင့် အသံ အချိန်ကိုက် ညှိခြင်း...'
+          : '2/3. Syncing audio timing with video pacing engine...'
+      );
       await new Promise((r) => setTimeout(r, 900));
       setRenderProgress(80);
-      setRenderPhase('၃/၃။ 1080p HD Video Output ပေါင်းစပ်ဖန်တီးခြင်း...');
+      setRenderPhase(
+        language === 'mm'
+          ? '၃/၃။ 1080p HD Video Output ပေါင်းစပ်ဖန်တီးခြင်း...'
+          : '3/3. Rendering final 1080p HD video output...'
+      );
       await new Promise((r) => setTimeout(r, 900));
 
       setRenderProgress(100);
@@ -548,7 +626,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#080b12] text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
-      {/* Top Application Header */}
+      {/* Top Application Header with Language Switcher and Drawer Trigger */}
       <Header
         mode="auto"
         onToggleMode={() => {}}
@@ -561,11 +639,30 @@ export default function App() {
         onOpenSettings={handleOpenUserSettings}
         onOpenAdminPortal={() => setIsAdminPortalOpen(true)}
         isAdminAuthenticated={isAdminAuthenticated}
+        onOpenSidebar={() => setIsSidebarOpen(true)}
+        onOpenTranscriptHub={() => setIsTranscriptHubOpen(true)}
+        onOpenOrders={() => setIsOrdersOpen(true)}
+        onOpenDownloads={() => setIsDownloadsOpen(true)}
+        onOpenSupport={() => setIsSupportOpen(true)}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        onLogout={() => setIsLogoutOpen(true)}
+      />
+
+      {/* Sidebar Drawer Navigation */}
+      <SidebarDrawer
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        activeItem={activeSidebarItem}
+        onSelectItem={handleSelectSidebarItem}
+        userEmail={userEmail}
+        vipInfo={vipInfo}
+        isAdminAuthenticated={isAdminAuthenticated}
+        onOpenAdminPortal={() => setIsAdminPortalOpen(true)}
       />
 
       {/* Main Studio Body - Full 4-Step User Workflow */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6">
-        {/* Step Indicator Breadcrumb Bar */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6">
+        {/* Step Indicator Breadcrumb Bar with user-specified Bilingual labels */}
         <StepIndicator
           currentStep={currentStep}
           onSelectStep={(s) => {
@@ -652,6 +749,61 @@ export default function App() {
         )}
       </main>
 
+      {/* Transcript Hub Modal */}
+      <TranscriptHubModal
+        isOpen={isTranscriptHubOpen}
+        onClose={() => setIsTranscriptHubOpen(false)}
+        currentSegments={segments}
+        onLoadSegments={(newSegs, title) => {
+          setSegments(newSegs);
+          setVideoFileName(`${title}.mp4`);
+          setCurrentStep(2);
+        }}
+      />
+
+      {/* Orders & Subscriptions Modal */}
+      <OrdersModal
+        isOpen={isOrdersOpen}
+        onClose={() => setIsOrdersOpen(false)}
+        vipInfo={vipInfo}
+        onOpenUpgradeModal={() => handleOpenUserSettings('vip')}
+      />
+
+      {/* Downloads Modal */}
+      <DownloadsModal
+        isOpen={isDownloadsOpen}
+        onClose={() => setIsDownloadsOpen(false)}
+        videoPreviewUrl={videoPreviewUrl}
+        videoFileName={videoFileName}
+        isRenderComplete={isRenderComplete}
+        segments={segments}
+      />
+
+      {/* Profile & Account Details Modal */}
+      <ProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        userEmail={userEmail}
+        vipInfo={vipInfo}
+        usedCredits={usedCredits}
+        totalCredits={totalCredits}
+        onOpenSettings={handleOpenUserSettings}
+        onLogout={() => setIsLogoutOpen(true)}
+      />
+
+      {/* Customer Support Modal */}
+      <SupportModal
+        isOpen={isSupportOpen}
+        onClose={() => setIsSupportOpen(false)}
+      />
+
+      {/* Logout Confirmation Modal */}
+      <LogoutModal
+        isOpen={isLogoutOpen}
+        onClose={() => setIsLogoutOpen(false)}
+        onConfirmLogout={handleConfirmLogout}
+      />
+
       {/* User Settings & VIP Subscription Modal */}
       <UserSettingsModal
         isOpen={isUserSettingsOpen}
@@ -683,14 +835,32 @@ export default function App() {
       {/* Footer with subtle Admin trigger link */}
       <footer className="border-t border-white/5 py-4 px-4 text-center text-xs text-slate-500 font-mono flex flex-col sm:flex-row items-center justify-between max-w-7xl mx-auto w-full gap-2">
         <span>pY Channel AI Movie Recap Studio &bull; Version 3.0</span>
-        <button
-          type="button"
-          onClick={() => setIsAdminPortalOpen(true)}
-          className="text-slate-600 hover:text-amber-400 text-[11px] transition-colors cursor-pointer"
-        >
-          [Admin Master Control]
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsSupportOpen(true)}
+            className="text-slate-500 hover:text-emerald-400 text-[11px] transition-colors cursor-pointer"
+          >
+            {t.support}
+          </button>
+          <span>&bull;</span>
+          <button
+            type="button"
+            onClick={() => setIsAdminPortalOpen(true)}
+            className="text-slate-600 hover:text-amber-400 text-[11px] transition-colors cursor-pointer"
+          >
+            [Admin Master Control]
+          </button>
+        </div>
       </footer>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <LanguageProvider>
+      <MainStudioApp />
+    </LanguageProvider>
   );
 }
