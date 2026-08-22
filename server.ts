@@ -418,6 +418,7 @@ async function generateBurmeseAudioBuffer({
     if (!chunk.trim()) continue;
     const endpoints = [
       `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
+      `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(chunk)}&le=my`,
       `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encodeURIComponent(chunk)}`,
       `https://translate.google.com.sg/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
     ];
