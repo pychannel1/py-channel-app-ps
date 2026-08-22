@@ -1,3 +1,5 @@
+import { synthesizeWithEdgeTTS } from '../src/server/edgeTTS';
+
 /**
  * Fail-Proof Multi-Engine Myanmar Voice AI Pipeline (Edge Neural TTS + Multi-Provider Fallbacks)
  * Provides a reliable, sequentially executed TTS synthesis handler across 3+ independent TTS providers.
@@ -6,6 +8,9 @@
 export interface MultiEngineTTSOptions {
   text: string;
   voiceGender?: 'male' | 'female' | string;
+  voiceName?: string;
+  voiceId?: string;
+  voice?: string;
   speed?: number;
   pitchOffset?: number;
   basePitchHz?: number;
@@ -25,16 +30,52 @@ export async function generateMultiEngineMyanmarTTS(
   options: MultiEngineTTSOptions
 ): Promise<MultiEngineTTSResult> {
   const cleanText = (options.text || 'မင်္ဂလာပါ').trim().substring(0, 800);
-  const isMale =
-    options.voiceGender === 'male' ||
-    (typeof options.voiceGender === 'string' && options.voiceGender.toLowerCase().includes('male'));
-  const voiceName = isMale ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural';
+  const voiceParam = options.voice || options.voiceName || '';
+  const voiceIdParam = options.voiceId || '';
+  const genderParam = (options.voiceGender || '').toLowerCase();
 
-  // 1. Primary Engine: StreamElements Edge Neural TTS / Microsoft Edge TTS
+  let isMale = false;
+  if (genderParam === 'male' || genderParam === 'm') {
+    isMale = true;
+  } else if (genderParam === 'female' || genderParam === 'f') {
+    isMale = false;
+  } else if (voiceParam.includes('Thiha') || voiceIdParam.includes('male')) {
+    isMale = true;
+  } else if (voiceParam.includes('Nilar') || voiceIdParam.includes('female')) {
+    isMale = false;
+  }
+
+  const selectedVoice = isMale ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural';
+  const pitchHz = typeof options.pitchOffset === 'number' ? options.pitchOffset : (isMale ? -18 : 8);
+  const speed = typeof options.speed === 'number' ? options.speed : 1.0;
+
+  // 1. Primary Engine: Real Microsoft Edge Neural Voice (Thiha = Male, Nilar = Female)
+  try {
+    const edgeAudio = await synthesizeWithEdgeTTS({
+      text: cleanText,
+      voiceName: selectedVoice,
+      gender: isMale ? 'male' : 'female',
+      pitchHz,
+      rateMultiplier: speed,
+    });
+
+    if (edgeAudio && edgeAudio.length > 50) {
+      return {
+        audioBuffer: edgeAudio,
+        source: 'edge_neural',
+        voiceName: selectedVoice,
+        contentType: 'audio/mpeg',
+      };
+    }
+  } catch (e) {
+    console.warn('Primary Edge Neural TTS failed, switching to StreamElements/Google...', e);
+  }
+
+  // 2. Secondary Engine: StreamElements Edge Neural Proxy
   try {
     const edgeUrl = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(
-      voiceName
-    )}&text=${encodeURIComponent(cleanText)}`;
+      selectedVoice
+    )}&text=${encodeURIComponent(cleanText.substring(0, 500))}`;
     const edgeRes = await fetch(edgeUrl, {
       headers: {
         'User-Agent':
@@ -49,16 +90,16 @@ export async function generateMultiEngineMyanmarTTS(
         return {
           audioBuffer: Buffer.from(audioData),
           source: 'streamelements_edge',
-          voiceName,
+          voiceName: selectedVoice,
           contentType: 'audio/mpeg',
         };
       }
     }
   } catch (e) {
-    console.warn('Primary StreamElements Edge TTS failed, switching to Secondary...', e);
+    console.warn('Secondary StreamElements Edge TTS failed, switching to Google TTS...', e);
   }
 
-  // 2. Secondary Engine: Google Speech Stream Proxy (with chunking for long sentences)
+  // 3. Tertiary Engine: Google Speech Stream Proxy
   try {
     const gUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${encodeURIComponent(
       cleanText
@@ -77,16 +118,16 @@ export async function generateMultiEngineMyanmarTTS(
         return {
           audioBuffer: Buffer.from(gAudio),
           source: 'google_tts',
-          voiceName,
+          voiceName: selectedVoice,
           contentType: 'audio/mpeg',
         };
       }
     }
   } catch (e) {
-    console.warn('Secondary Google TTS failed, switching to Tertiary...', e);
+    console.warn('Tertiary Google TTS failed, switching to Dict Youdao...', e);
   }
 
-  // 3. Tertiary Engine: Dict Voice CDN Proxy
+  // 4. Fallback: Dict Voice CDN Proxy
   try {
     const fallbackUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(cleanText)}&le=my`;
     const fbRes = await fetch(fallbackUrl, {
@@ -102,16 +143,16 @@ export async function generateMultiEngineMyanmarTTS(
         return {
           audioBuffer: Buffer.from(fbAudio),
           source: 'youdao_cdn',
-          voiceName,
+          voiceName: selectedVoice,
           contentType: 'audio/mpeg',
         };
       }
     }
   } catch (e) {
-    console.warn('Tertiary Youdao CDN TTS failed:', e);
+    console.warn('Dict CDN TTS failed:', e);
   }
 
-  // 4. Ultimate Fallback: Google Translate GTX Endpoint
+  // 5. Ultimate Fallback: Google Translate GTX Endpoint
   try {
     const gtxUrl = `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encodeURIComponent(
       cleanText
@@ -129,7 +170,7 @@ export async function generateMultiEngineMyanmarTTS(
         return {
           audioBuffer: Buffer.from(gtxAudio),
           source: 'google_tts',
-          voiceName,
+          voiceName: selectedVoice,
           contentType: 'audio/mpeg',
         };
       }

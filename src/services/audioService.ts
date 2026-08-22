@@ -31,17 +31,43 @@ export function getSharedServiceAudio(): HTMLAudioElement {
  */
 export async function playMyanmarVoiceModel(
   text: string,
-  voiceIndex: number = 0,
+  voiceOrGenderOrIndex?: string | number | any,
   speed: number = 1.0
 ): Promise<void> {
   // Ensure browser audio context is unlocked
   await unlockAudioContext();
 
   const sampleText = text.trim() || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်';
-  const encodedText = encodeURIComponent(sampleText.substring(0, 250));
+  const encodedText = encodeURIComponent(sampleText.substring(0, 300));
 
-  // Determine gender/voice based on index
-  const isMale = voiceIndex % 2 === 0;
+  // Determine gender strictly
+  let isMale = false;
+  let voiceId = 'voice-female-hs';
+  let basePitchHz = 8;
+
+  if (typeof voiceOrGenderOrIndex === 'object' && voiceOrGenderOrIndex !== null) {
+    isMale = voiceOrGenderOrIndex.gender === 'male';
+    voiceId = voiceOrGenderOrIndex.id || (isMale ? 'voice-male-bb' : 'voice-female-hs');
+    basePitchHz = voiceOrGenderOrIndex.basePitchHz ?? (isMale ? -18 : 8);
+  } else if (typeof voiceOrGenderOrIndex === 'string') {
+    const lower = voiceOrGenderOrIndex.toLowerCase();
+    if (lower === 'male' || lower === 'm' || lower.includes('thiha') || (lower.includes('male') && !lower.includes('female'))) {
+      isMale = true;
+      voiceId = 'voice-male-bb';
+      basePitchHz = -18;
+    } else {
+      isMale = false;
+      voiceId = 'voice-female-hs';
+      basePitchHz = 8;
+    }
+  } else if (typeof voiceOrGenderOrIndex === 'number') {
+    // Indices 0-19 are male, 20-39 are female
+    isMale = voiceOrGenderOrIndex < 20;
+    voiceId = isMale ? 'voice-male-bb' : 'voice-female-hs';
+    basePitchHz = isMale ? -18 : 8;
+  }
+
+  const voiceName = isMale ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural';
 
   // Stop any previous playing audio
   if (window.currentAudio) {
@@ -63,10 +89,12 @@ export async function playMyanmarVoiceModel(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        voice_id: `voice-${isMale ? 'male' : 'female'}-${voiceIndex}`,
+        voice_id: voiceId,
         gender: isMale ? 'male' : 'female',
+        voiceName,
         text: sampleText,
         rate: speed,
+        basePitchHz,
       }),
     });
 
@@ -101,13 +129,10 @@ export async function playMyanmarVoiceModel(
 
   // 2. Reliable Audio Source URLs for Myanmar Speech
   const audioUrls = [
-    `/api/stream-tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&rate=${speed}`,
-    `/api/tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&rate=${speed}`,
+    `/api/stream-tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&voiceName=${voiceName}&rate=${speed}`,
+    `/api/tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&voice=${voiceName}&rate=${speed}`,
     `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${encodedText}`,
     `https://dict.youdao.com/dictvoice?audio=${encodedText}&le=my`,
-    `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(
-      isMale ? 'Burmese Male' : 'Burmese Female'
-    )}&text=${encodedText}`,
   ];
 
   for (const url of audioUrls) {
@@ -137,6 +162,7 @@ export async function playMyanmarVoiceModel(
       const utterance = new SpeechSynthesisUtterance(sampleText);
       utterance.lang = 'my-MM';
       utterance.rate = speed;
+      utterance.pitch = isMale ? 0.7 : 1.1; // Adjust pitch for Web Speech male/female distinction
       window.speechSynthesis.speak(utterance);
     } catch (speechErr) {
       console.error('Speech synthesis fallback failed:', speechErr);

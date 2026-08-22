@@ -2,7 +2,8 @@ import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
 export interface EdgeTTSSynthesizeOptions {
   text: string;
-  voiceName: string; // 'my-MM-ThihaNeural' | 'my-MM-NilarNeural'
+  voiceName?: string; // 'my-MM-ThihaNeural' | 'my-MM-NilarNeural'
+  gender?: 'male' | 'female' | string;
   pitchHz?: number;  // e.g. -10 to -30 Hz for male, 0 to +20 Hz for female
   rateMultiplier?: number; // e.g. 1.05
 }
@@ -14,15 +15,17 @@ export interface EdgeTTSSynthesizeOptions {
  * - Female: 'my-MM-NilarNeural' (0Hz to +20Hz)
  */
 export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): Promise<Buffer> {
-  const { text, voiceName, pitchHz = 0, rateMultiplier = 1.0 } = options;
+  const { text, voiceName, gender, pitchHz = 0, rateMultiplier = 1.0 } = options;
 
-  // Strict Voice Selection Guard
-  const targetVoice =
-    voiceName && voiceName.includes('Thiha')
-      ? 'my-MM-ThihaNeural'
-      : voiceName && voiceName.includes('Nilar')
-      ? 'my-MM-NilarNeural'
-      : voiceName || 'my-MM-ThihaNeural';
+  // Strict Voice & Gender Mapping Guard
+  let targetVoice = 'my-MM-NilarNeural';
+  if (gender === 'male' || (typeof voiceName === 'string' && voiceName.includes('Thiha'))) {
+    targetVoice = 'my-MM-ThihaNeural';
+  } else if (gender === 'female' || (typeof voiceName === 'string' && voiceName.includes('Nilar'))) {
+    targetVoice = 'my-MM-NilarNeural';
+  } else if (typeof voiceName === 'string' && voiceName.toLowerCase().includes('male')) {
+    targetVoice = voiceName.toLowerCase().includes('female') ? 'my-MM-NilarNeural' : 'my-MM-ThihaNeural';
+  }
 
   try {
     const tts = new MsEdgeTTS();
@@ -42,17 +45,24 @@ export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): 
       const audioChunks: Buffer[] = [];
       let isDone = false;
 
-      // 4-second timeout to quickly fallback to Google Neural TTS if Edge websocket is slow
+      const cleanup = () => {
+        try {
+          (tts as any)._ws?.close();
+        } catch {}
+      };
+
+      // 9-second timeout to allow comfortable synthesis while guarding against hangs
       const timeout = setTimeout(() => {
         if (!isDone) {
           isDone = true;
+          cleanup();
           if (audioChunks.length > 0) {
             resolve(Buffer.concat(audioChunks));
           } else {
             reject(new Error(`Edge TTS synthesis timed out for voice ${targetVoice}`));
           }
         }
-      }, 4000);
+      }, 9000);
 
       audioStream.on('data', (chunk: Buffer) => {
         audioChunks.push(chunk);
@@ -62,6 +72,7 @@ export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): 
         if (!isDone) {
           isDone = true;
           clearTimeout(timeout);
+          cleanup();
           if (audioChunks.length > 0) {
             resolve(Buffer.concat(audioChunks));
           } else {
@@ -74,6 +85,7 @@ export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): 
         if (!isDone) {
           isDone = true;
           clearTimeout(timeout);
+          cleanup();
           if (audioChunks.length > 0) {
             resolve(Buffer.concat(audioChunks));
           } else {
@@ -86,4 +98,5 @@ export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): 
     throw new Error(`Edge TTS setup failure: ${err.message || err}`);
   }
 }
+
 

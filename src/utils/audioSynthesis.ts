@@ -460,7 +460,7 @@ export async function playVoicePreview(
           if (currentActiveAudio === audio) currentActiveAudio = null;
           if (window.currentAudio === audio) window.currentAudio = null;
           if (!isStopped) {
-            playMyanmarVoiceModel(sampleText, targetVoice.gender === 'male' ? 0 : 1, effectiveSpeed);
+            playMyanmarVoiceModel(sampleText, targetVoice, effectiveSpeed);
           }
           if (!isStopped && onEndedCallback) onEndedCallback();
         };
@@ -484,7 +484,7 @@ export async function playVoicePreview(
             } catch {}
           }
           if (!isStopped) {
-            await playMyanmarVoiceModel(sampleText, targetVoice.gender === 'male' ? 0 : 1, effectiveSpeed);
+            await playMyanmarVoiceModel(sampleText, targetVoice, effectiveSpeed);
           }
         }
         return;
@@ -493,7 +493,7 @@ export async function playVoicePreview(
       console.warn('Backend TTS synthesis warning, using multi-mirror fallback player:', err);
       if (!isStopped) {
         try {
-          await playMyanmarVoiceModel(sampleText, targetVoice.gender === 'male' ? 0 : 1, effectiveSpeed);
+          await playMyanmarVoiceModel(sampleText, targetVoice, effectiveSpeed);
         } catch (e) {
           console.error('Final audio fallback failed:', e);
         }
