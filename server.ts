@@ -432,7 +432,7 @@ async function generateBurmeseAudioBuffer({
     return { buffer: cached.buffer, source: `${cached.source}_cached`, voiceName: cached.voiceName };
   }
 
-  // 1. Try Microsoft Edge Neural TTS
+  // 1. Try Microsoft Edge Neural TTS (Native WebSocket + StreamElements Engine)
   try {
     const audioBuffer = await synthesizeWithEdgeTTS({
       text: cleanText,
@@ -455,7 +455,35 @@ async function generateBurmeseAudioBuffer({
       return { buffer: audioBuffer, source: "edge_neural_tts", voiceName: selectedVoiceName };
     }
   } catch (edgeErr) {
-    console.warn("Edge Neural TTS fallback to Google Myanmar engine:", edgeErr);
+    console.warn("Primary Edge WebSocket TTS failed, switching to StreamElements Edge TTS engine:", edgeErr);
+  }
+
+  // 1b. Try StreamElements Edge TTS Engine for Microsoft Neural Voice
+  try {
+    const edgeUrl = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(
+      selectedVoiceName
+    )}&text=${encodeURIComponent(cleanText.substring(0, 500))}`;
+    const edgeRes = await fetch(edgeUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      },
+    });
+    if (edgeRes.ok) {
+      const edgeData = await edgeRes.arrayBuffer();
+      if (edgeData.byteLength > 100) {
+        const buf = Buffer.from(edgeData);
+        ttsMemoryCache.set(cacheKey, {
+          buffer: buf,
+          source: "streamelements_edge",
+          voiceName: selectedVoiceName,
+          timestamp: Date.now(),
+        });
+        return { buffer: buf, source: "streamelements_edge", voiceName: selectedVoiceName };
+      }
+    }
+  } catch (seErr) {
+    console.warn("StreamElements Edge TTS engine failed, switching to Google TTS...", seErr);
   }
 
   // 2. Fallback to Fast Parallel Google Myanmar TTS Proxy
