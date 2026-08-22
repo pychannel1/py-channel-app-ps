@@ -351,7 +351,161 @@ app.post("/api/transcribe-assembly", async (req, res) => {
   }
 });
 
-// High-Fidelity Neural Burmese TTS Synthesis Endpoint (Strict Male: my-MM-ThihaNeural / Female: my-MM-NilarNeural)
+// Helper function to synthesize Burmese audio buffer (Edge TTS -> Google Myanmar TTS)
+async function generateBurmeseAudioBuffer({
+  text,
+  isMale = false,
+  pitchOffset = 0,
+  speedMultiplier = 1.0,
+  basePitchHz,
+}: {
+  text: string;
+  isMale?: boolean;
+  pitchOffset?: number;
+  speedMultiplier?: number;
+  basePitchHz?: number;
+}): Promise<{ buffer: Buffer; source: string; voiceName: string }> {
+  const selectedVoiceName = isMale ? "my-MM-ThihaNeural" : "my-MM-NilarNeural";
+  const effectiveBasePitch = typeof basePitchHz === "number" ? basePitchHz : (isMale ? -18 : 8);
+  const finalPitchHz = Math.round(effectiveBasePitch + (Number(pitchOffset) || 0));
+
+  // 1. Try Microsoft Edge Neural TTS with 3s timeout
+  try {
+    const audioBuffer = await synthesizeWithEdgeTTS({
+      text: text.trim(),
+      voiceName: selectedVoiceName,
+      pitchHz: finalPitchHz,
+      rateMultiplier: Number(speedMultiplier) || 1.0,
+    });
+
+    if (audioBuffer && audioBuffer.length > 50) {
+      return { buffer: audioBuffer, source: "edge_neural_tts", voiceName: selectedVoiceName };
+    }
+  } catch (edgeErr) {
+    console.warn("Edge Neural TTS fallback to Google Myanmar engine:", edgeErr);
+  }
+
+  // 2. Fallback to Google Myanmar TTS Proxy
+  const splitIntoTTSChunks = (str: string, maxLength = 100): string[] => {
+    const parts = str.split(/([၊။\n!?]+)/);
+    const chunks: string[] = [];
+    let current = "";
+
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (current.length + p.length <= maxLength) {
+        current += p;
+      } else {
+        if (current.trim()) chunks.push(current.trim());
+        if (p.length > maxLength) {
+          for (let j = 0; j < p.length; j += maxLength) {
+            chunks.push(p.slice(j, j + maxLength).trim());
+          }
+          current = "";
+        } else {
+          current = p;
+        }
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks.filter((c) => c.length > 0);
+  };
+
+  const textChunks = splitIntoTTSChunks(text.trim());
+  const audioBuffers: Buffer[] = [];
+
+  for (const chunk of textChunks) {
+    if (!chunk.trim()) continue;
+    const endpoints = [
+      `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
+      `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encodeURIComponent(chunk)}`,
+      `https://translate.google.com.sg/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
+    ];
+
+    let chunkBuffer: Buffer | null = null;
+    for (const ttsUrl of endpoints) {
+      try {
+        const ttsResp = await fetch(ttsUrl, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            Referer: "https://translate.google.com/",
+          },
+        });
+
+        if (ttsResp.ok) {
+          const arrayBuffer = await ttsResp.arrayBuffer();
+          if (arrayBuffer.byteLength > 50) {
+            chunkBuffer = Buffer.from(arrayBuffer);
+            break;
+          }
+        }
+      } catch (err) {
+        // Try next endpoint
+      }
+    }
+
+    if (chunkBuffer) {
+      audioBuffers.push(chunkBuffer);
+    }
+  }
+
+  if (audioBuffers.length > 0) {
+    return {
+      buffer: Buffer.concat(audioBuffers),
+      source: "google_myanmar_tts",
+      voiceName: selectedVoiceName,
+    };
+  }
+
+  throw new Error("Could not synthesize audio from any Burmese TTS engine");
+}
+
+// 1. Direct Audio Streaming GET Endpoint for Instant HTML5 Audio Playback & Voice Audition
+app.get("/api/stream-tts", async (req, res) => {
+  try {
+    const text = typeof req.query.text === "string" ? req.query.text : "";
+    if (!text || text.trim().length === 0) {
+      return res.status(400).send("Text is required");
+    }
+
+    const gender = req.query.gender as string;
+    const voiceName = (req.query.voiceName || req.query.voiceModel) as string;
+    const voiceId = req.query.voiceId as string;
+    let isMale = false;
+
+    if (gender === "male" || gender === "female") {
+      isMale = gender === "male";
+    } else if (typeof voiceName === "string" && (voiceName.includes("Thiha") || voiceName.includes("Nilar"))) {
+      isMale = voiceName.includes("Thiha");
+    } else if (typeof voiceId === "string") {
+      isMale = voiceId.includes("voice-male");
+    }
+
+    const pitchOffset = Number(req.query.pitchOffset) || 0;
+    const speedMultiplier = Number(req.query.speedMultiplier) || 1.0;
+    const basePitchHz = req.query.basePitchHz ? Number(req.query.basePitchHz) : undefined;
+
+    const result = await generateBurmeseAudioBuffer({
+      text,
+      isMale,
+      pitchOffset,
+      speedMultiplier,
+      basePitchHz,
+    });
+
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Content-Length", result.buffer.length);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Accept-Ranges", "bytes");
+    res.send(result.buffer);
+  } catch (error: any) {
+    console.error("Audio stream error:", error);
+    res.status(500).send(error.message || "Failed to stream audio");
+  }
+});
+
+// 2. High-Fidelity Neural Burmese TTS Synthesis Endpoint (POST JSON)
 app.post("/api/synthesize-burmese-tts", async (req, res) => {
   try {
     const {
@@ -369,9 +523,6 @@ app.post("/api/synthesize-burmese-tts", async (req, res) => {
       return res.status(400).json({ error: "Text is required for TTS synthesis" });
     }
 
-    const cleanText = text.trim();
-
-    // Strict Voice Model Mapping
     let isMale = false;
     if (gender === "male" || gender === "female") {
       isMale = gender === "male";
@@ -383,128 +534,30 @@ app.post("/api/synthesize-burmese-tts", async (req, res) => {
       isMale = voiceId.includes("voice-male");
     }
 
-    const selectedVoiceName = isMale ? "my-MM-ThihaNeural" : "my-MM-NilarNeural";
-
-    // Base pitch offset: Male authentic deep pitch (-10Hz to -30Hz), Female natural pitch (0Hz to +20Hz)
     const effectiveBasePitch = typeof basePitchHz === "number" ? basePitchHz : (isMale ? -18 : 8);
     const finalPitchHz = Math.round(effectiveBasePitch + (Number(pitchOffset) || 0));
 
-    // 1. Primary High-Quality Synthesis via Microsoft Edge Neural TTS
-    try {
-      const audioBuffer = await synthesizeWithEdgeTTS({
-        text: cleanText,
-        voiceName: selectedVoiceName,
-        pitchHz: finalPitchHz,
-        rateMultiplier: Number(speedMultiplier) || 1.0,
-      });
+    const result = await generateBurmeseAudioBuffer({
+      text,
+      isMale,
+      pitchOffset: finalPitchHz,
+      speedMultiplier: Number(speedMultiplier) || 1.0,
+      basePitchHz,
+    });
 
-      if (audioBuffer && audioBuffer.length > 0) {
-        const audioBase64 = audioBuffer.toString("base64");
-        return res.json({
-          success: true,
-          source: "edge_neural_tts",
-          voiceName: selectedVoiceName,
-          voiceModel: selectedVoiceName,
-          gender: isMale ? "male" : "female",
-          voiceId,
-          finalPitchHz,
-          speedMultiplier,
-          mimeType: "audio/mpeg",
-          audioBase64: `data:audio/mpeg;base64,${audioBase64}`,
-        });
-      }
-    } catch (edgeErr) {
-      console.warn("Edge Neural TTS attempt failed or unavailable, falling back to secondary streaming engine:", edgeErr);
-    }
+    const audioBase64 = result.buffer.toString("base64");
 
-    // 2. Secondary Fallback Audio Stream Engine (Google Myanmar Speech Synthesis)
-    const splitIntoTTSChunks = (str: string, maxLength = 100): string[] => {
-      // Split by Burmese sentence/phrase terminators or spaces
-      const parts = str.split(/([၊။\n!?]+)/);
-      const chunks: string[] = [];
-      let current = "";
-
-      for (let i = 0; i < parts.length; i++) {
-        const p = parts[i];
-        if (current.length + p.length <= maxLength) {
-          current += p;
-        } else {
-          if (current.trim()) chunks.push(current.trim());
-          if (p.length > maxLength) {
-            // Further slice ultra-long sub-phrases
-            for (let j = 0; j < p.length; j += maxLength) {
-              chunks.push(p.slice(j, j + maxLength).trim());
-            }
-            current = "";
-          } else {
-            current = p;
-          }
-        }
-      }
-      if (current.trim()) chunks.push(current.trim());
-      return chunks.filter((c) => c.length > 0);
-    };
-
-    const textChunks = splitIntoTTSChunks(cleanText);
-    const audioBuffers: Buffer[] = [];
-
-    for (const chunk of textChunks) {
-      if (!chunk.trim()) continue;
-      const endpoints = [
-        `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
-        `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encodeURIComponent(chunk)}`,
-        `https://translate.google.com.sg/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
-        `https://translate.google.co.th/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
-      ];
-
-      let chunkBuffer: Buffer | null = null;
-      for (const ttsUrl of endpoints) {
-        try {
-          const ttsResp = await fetch(ttsUrl, {
-            headers: {
-              "User-Agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-              Referer: "https://translate.google.com/",
-            },
-          });
-
-          if (ttsResp.ok) {
-            const arrayBuffer = await ttsResp.arrayBuffer();
-            if (arrayBuffer.byteLength > 50) {
-              chunkBuffer = Buffer.from(arrayBuffer);
-              break;
-            }
-          }
-        } catch (err) {
-          // Try next endpoint
-        }
-      }
-
-      if (chunkBuffer) {
-        audioBuffers.push(chunkBuffer);
-      }
-    }
-
-    if (audioBuffers.length > 0) {
-      const combinedBuffer = Buffer.concat(audioBuffers);
-      const audioBase64 = combinedBuffer.toString("base64");
-
-      return res.json({
-        success: true,
-        source: "secondary_burmese_engine",
-        voiceName: selectedVoiceName,
-        voiceModel: selectedVoiceName,
-        gender: isMale ? "male" : "female",
-        voiceId,
-        finalPitchHz,
-        speedMultiplier,
-        mimeType: "audio/mpeg",
-        audioBase64: `data:audio/mpeg;base64,${audioBase64}`,
-      });
-    }
-
-    return res.status(502).json({
-      error: "Could not generate audio from neural engine",
+    return res.json({
+      success: true,
+      source: result.source,
+      voiceName: result.voiceName,
+      voiceModel: result.voiceName,
+      gender: isMale ? "male" : "female",
+      voiceId,
+      finalPitchHz,
+      speedMultiplier,
+      mimeType: "audio/mpeg",
+      audioBase64: `data:audio/mpeg;base64,${audioBase64}`,
     });
   } catch (error: any) {
     console.error("Burmese TTS synthesis error:", error);

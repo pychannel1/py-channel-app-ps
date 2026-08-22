@@ -5,6 +5,20 @@ let audioCtx: AudioContext | null = null;
 let currentActiveAudio: HTMLAudioElement | null = null;
 
 /**
+ * Universal Shared Audio Element to guarantee gesture-unlocked playback on Mobile Chrome/Safari/WebView
+ */
+let sharedPreviewAudio: HTMLAudioElement | null = null;
+
+function getSharedPreviewAudio(): HTMLAudioElement {
+  if (!sharedPreviewAudio) {
+    sharedPreviewAudio = new Audio();
+    sharedPreviewAudio.crossOrigin = 'anonymous';
+    sharedPreviewAudio.preload = 'auto';
+  }
+  return sharedPreviewAudio;
+}
+
+/**
  * Robust Audio Unlock for Web Audio / HTML5 Audio (Browser Autoplay Compliance)
  * Ensures AudioContext is created and immediately resumed during user gestures.
  */
@@ -22,6 +36,19 @@ export async function unlockAudioContext(): Promise<AudioContext> {
       console.warn('AudioContext resume exception:', e);
     }
   }
+
+  // Pre-unlock shared HTML5 audio element
+  try {
+    const audio = getSharedPreviewAudio();
+    if (!audio.src) {
+      // Tiny silent mp3 data URI to warm up audio subsystem
+      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      audio.volume = 1.0;
+      audio.play().catch(() => {});
+      audio.pause();
+    }
+  } catch {}
+
   return audioCtx;
 }
 
@@ -62,6 +89,7 @@ export async function generateBurmeseAudioBlob({
 }): Promise<GeneratedAudioResult> {
   const normalizedText = normalizeMyanmarForTTS(text);
 
+  // 1. Try server POST endpoint
   try {
     const resp = await fetch('/api/synthesize-burmese-tts', {
       method: 'POST',
@@ -103,28 +131,32 @@ export async function generateBurmeseAudioBlob({
       }
     }
   } catch (err) {
-    console.warn('Server TTS synthesis failed, trying client fallback stream:', err);
+    console.warn('Server TTS POST failed, trying server streaming fetch:', err);
   }
 
-  // Fallback: Client-side Stream Fetch to create a genuine MP3 Blob
+  // 2. Fallback: Server Stream GET Endpoint
   try {
-    const cleanSlice = normalizedText.slice(0, 180).trim();
-    const cleanEncoded = encodeURIComponent(cleanSlice);
-    const streamUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${cleanEncoded}`;
+    const streamUrl = `/api/stream-tts?text=${encodeURIComponent(
+      normalizedText
+    )}&gender=${encodeURIComponent(voice.gender)}&voiceId=${encodeURIComponent(
+      voice.id
+    )}&pitchOffset=${pitchOffsetHz}&speedMultiplier=${speedMultiplier}`;
 
     const streamResp = await fetch(streamUrl);
     if (streamResp.ok) {
       const arrayBuf = await streamResp.arrayBuffer();
-      const audioBlob = new Blob([arrayBuf], { type: 'audio/mpeg' });
-      const blobUrl = URL.createObjectURL(audioBlob);
-      return {
-        blob: audioBlob,
-        blobUrl,
-        mimeType: 'audio/mpeg',
-      };
+      if (arrayBuf.byteLength > 50) {
+        const audioBlob = new Blob([arrayBuf], { type: 'audio/mpeg' });
+        const blobUrl = URL.createObjectURL(audioBlob);
+        return {
+          blob: audioBlob,
+          blobUrl,
+          mimeType: 'audio/mpeg',
+        };
+      }
     }
   } catch (fallbackErr) {
-    console.warn('Client fallback fetch error:', fallbackErr);
+    console.warn('Server stream fetch error:', fallbackErr);
   }
 
   // Final Empty Safe Blob to prevent crashes
@@ -157,12 +189,11 @@ export const playMyanmarAudio = (text: string, speed: number = 1.0): Promise<boo
       return;
     }
 
-    const cleanText = encodeURIComponent(clean);
-    // Direct reliable Myanmar TTS stream URL
-    const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${cleanText}`;
+    const normalized = normalizeMyanmarForTTS(clean);
+    const audioUrl = `/api/stream-tts?text=${encodeURIComponent(normalized)}&speedMultiplier=${speed}`;
 
-    const audio = new Audio(audioUrl);
-    audio.crossOrigin = 'anonymous';
+    const audio = getSharedPreviewAudio();
+    audio.src = audioUrl;
     audio.volume = 1.0;
     audio.muted = false;
     audio.playbackRate = Math.max(0.5, Math.min(2.0, speed || 1.0));
@@ -177,30 +208,14 @@ export const playMyanmarAudio = (text: string, speed: number = 1.0): Promise<boo
     };
 
     audio.onerror = (e) => {
-      console.error('Audio playback error on primary stream:', e);
-      if (currentActiveAudio === audio) {
-        currentActiveAudio = null;
-      }
-      // Attempt mirror fallback if primary fails
-      const fallbackUrl = `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${cleanText}`;
-      const fallbackAudio = new Audio(fallbackUrl);
-      fallbackAudio.crossOrigin = 'anonymous';
-      fallbackAudio.volume = 1.0;
-      fallbackAudio.muted = false;
-      fallbackAudio.playbackRate = Math.max(0.5, Math.min(2.0, speed || 1.0));
-      currentActiveAudio = fallbackAudio;
-      fallbackAudio.onended = () => {
-        if (currentActiveAudio === fallbackAudio) currentActiveAudio = null;
-        resolve(true);
-      };
-      fallbackAudio.onerror = (err) => {
-        console.error('Audio playback error on fallback stream:', err);
-        if (currentActiveAudio === fallbackAudio) currentActiveAudio = null;
-        reject(err || e);
-      };
-      fallbackAudio.play().catch((err) => {
-        console.error('Audio playback failed:', err);
-        if (currentActiveAudio === fallbackAudio) currentActiveAudio = null;
+      console.warn('Audio streaming error on internal endpoint, attempting direct proxy fallback:', e);
+      // Secondary fallback to Google TTS direct endpoint
+      const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${encodeURIComponent(
+        normalized.slice(0, 180)
+      )}`;
+      audio.src = fallbackUrl;
+      audio.play().then(() => resolve(true)).catch((err) => {
+        if (currentActiveAudio === audio) currentActiveAudio = null;
         reject(err);
       });
     };
@@ -220,12 +235,12 @@ export const playMyanmarAudio = (text: string, speed: number = 1.0): Promise<boo
  * 100% Real Human / Neural Speech (Edge Neural TTS / Direct Myanmar Audio Stream)
  * - Male: my-MM-ThihaNeural
  * - Female: my-MM-NilarNeural
- * - All dummy oscillator nodes and synthetic frequency math completely removed.
+ * - Instant synchronous stream initiation to prevent browser Autoplay blocks
  */
 export async function playVoicePreview({
   voice,
-  pitchOffsetHz,
-  speedMultiplier,
+  pitchOffsetHz = 0,
+  speedMultiplier = 1.0,
   customText,
   onEnded,
 }: {
@@ -238,7 +253,7 @@ export async function playVoicePreview({
   // 1. Immediately unlock and resume AudioContext within user gesture loop
   await unlockAudioContext();
 
-  // Stop any previously playing direct audio
+  // Stop any previously playing audio
   if (currentActiveAudio) {
     try {
       currentActiveAudio.pause();
@@ -251,16 +266,14 @@ export async function playVoicePreview({
   const normalizedText = normalizeMyanmarForTTS(rawText);
 
   let isStopped = false;
-  let directAudioElement: HTMLAudioElement | null = null;
 
   const stopAll = () => {
     isStopped = true;
-    if (directAudioElement) {
+    if (sharedPreviewAudio) {
       try {
-        directAudioElement.pause();
-        directAudioElement.currentTime = 0;
+        sharedPreviewAudio.pause();
+        sharedPreviewAudio.currentTime = 0;
       } catch {}
-      directAudioElement = null;
     }
     if (currentActiveAudio) {
       try {
@@ -272,76 +285,65 @@ export async function playVoicePreview({
     if (onEnded) onEnded();
   };
 
-  try {
-    // 2. Request authentic Neural Burmese Speech from server endpoint
-    const result = await generateBurmeseAudioBlob({
-      text: normalizedText,
-      voice,
-      pitchOffsetHz,
-      speedMultiplier,
-    });
+  const audio = getSharedPreviewAudio();
+  currentActiveAudio = audio;
 
-    if (result.blobUrl && !isStopped) {
-      const audio = new Audio(result.blobUrl);
-      audio.crossOrigin = 'anonymous';
-      audio.volume = 1.0;
-      audio.muted = false;
-      audio.playbackRate = Math.max(0.5, Math.min(2.0, (voice.baseRate || 1.0) * (speedMultiplier || 1.0)));
+  // Direct server stream endpoint for instant playback without gesture drop
+  const streamUrl = `/api/stream-tts?text=${encodeURIComponent(
+    normalizedText
+  )}&gender=${encodeURIComponent(voice.gender)}&voiceId=${encodeURIComponent(
+    voice.id
+  )}&voiceName=${encodeURIComponent(voice.voiceName || voice.voiceModel || '')}&pitchOffset=${pitchOffsetHz}&speedMultiplier=${speedMultiplier}`;
 
-      directAudioElement = audio;
-      currentActiveAudio = audio;
+  audio.src = streamUrl;
+  audio.volume = 1.0;
+  audio.muted = false;
+  audio.playbackRate = Math.max(0.5, Math.min(2.0, (voice.baseRate || 1.0) * (speedMultiplier || 1.0)));
 
-      audio.onended = () => {
-        if (directAudioElement === audio) directAudioElement = null;
-        if (currentActiveAudio === audio) currentActiveAudio = null;
-        if (!isStopped && onEnded) onEnded();
-      };
+  audio.onended = () => {
+    if (currentActiveAudio === audio) currentActiveAudio = null;
+    if (!isStopped && onEnded) onEnded();
+  };
 
-      audio.onerror = (e) => {
-        console.error('Audio playback error on Blob URL:', e);
-        if (directAudioElement === audio) directAudioElement = null;
-        if (currentActiveAudio === audio) currentActiveAudio = null;
-        if (!isStopped && onEnded) onEnded();
-      };
-
-      await audio.play();
-      return { stop: stopAll };
-    }
-  } catch (err) {
-    console.warn('Server TTS fetch error, switching to direct real audio stream:', err);
-  }
-
-  // 3. Fallback: Direct Real Myanmar Audio Stream
-  if (!isStopped) {
+  audio.onerror = async () => {
+    if (isStopped) return;
+    console.warn('Direct stream error, attempting pre-synthesized blob fallback...');
     try {
-      const cleanSlice = normalizedText.slice(0, 180).trim();
-      const cleanEncoded = encodeURIComponent(cleanSlice);
-      const streamUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${cleanEncoded}`;
+      const result = await generateBurmeseAudioBlob({
+        text: normalizedText,
+        voice,
+        pitchOffsetHz,
+        speedMultiplier,
+      });
+      if (result.blobUrl && !isStopped) {
+        audio.src = result.blobUrl;
+        await audio.play();
+        return;
+      }
+    } catch (fallbackErr) {
+      console.error('All audio fallbacks failed:', fallbackErr);
+    }
+    if (currentActiveAudio === audio) currentActiveAudio = null;
+    if (!isStopped && onEnded) onEnded();
+  };
 
-      const audio = new Audio(streamUrl);
-      audio.crossOrigin = 'anonymous';
-      audio.volume = 1.0;
-      audio.muted = false;
-      audio.playbackRate = Math.max(0.5, Math.min(2.0, speedMultiplier || 1.0));
-      directAudioElement = audio;
-      currentActiveAudio = audio;
-
-      audio.onended = () => {
-        if (directAudioElement === audio) directAudioElement = null;
-        if (currentActiveAudio === audio) currentActiveAudio = null;
-        if (!isStopped && onEnded) onEnded();
-      };
-
-      audio.onerror = (e) => {
-        console.error('Audio playback error on stream URL:', e);
-        if (directAudioElement === audio) directAudioElement = null;
-        if (currentActiveAudio === audio) currentActiveAudio = null;
-        if (!isStopped && onEnded) onEnded();
-      };
-
-      await audio.play();
-    } catch (streamErr) {
-      console.error('Direct stream playback error:', streamErr);
+  try {
+    await audio.play();
+  } catch (playErr) {
+    console.warn('Initial stream play() rejected, trying direct Blob fallback:', playErr);
+    try {
+      const result = await generateBurmeseAudioBlob({
+        text: normalizedText,
+        voice,
+        pitchOffsetHz,
+        speedMultiplier,
+      });
+      if (result.blobUrl && !isStopped) {
+        audio.src = result.blobUrl;
+        await audio.play();
+      }
+    } catch (finalErr) {
+      console.error('Final play error:', finalErr);
       if (onEnded) onEnded();
     }
   }

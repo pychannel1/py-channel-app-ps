@@ -41,7 +41,7 @@ export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): 
     const audioChunks: Buffer[] = [];
     let isDone = false;
 
-    // Fast 6-second timeout to quickly fallback to Google Neural TTS if Edge websocket has latency
+    // Snappy 3-second timeout to quickly fallback to Google Neural TTS if Edge websocket has latency
     const timeout = setTimeout(() => {
       if (!isDone) {
         isDone = true;
@@ -51,7 +51,7 @@ export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): 
           reject(new Error(`Edge TTS synthesis timed out for voice ${targetVoice}`));
         }
       }
-    }, 6000);
+    }, 3000);
 
     audioStream.on('data', (chunk: Buffer) => {
       audioChunks.push(chunk);
