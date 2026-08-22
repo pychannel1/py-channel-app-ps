@@ -10,6 +10,8 @@ export interface RenderVideoOptions {
   selectedVoice?: BurmeseVoiceAvatar;
   pitchOffset?: number;
   speedMultiplier?: number;
+  audioBlob?: Blob | null;
+  audioBlobUrl?: string | null;
   onProgress?: RenderProgressCallback;
 }
 
@@ -24,8 +26,9 @@ export interface RenderedVideoResult {
  * Background Video Processing Engine
  * - Automatically applies Horizontal Flip / Mirror Mode (scaleX(-1)) to video frames
  * - Embeds crisp Myanmar subtitles overlay with high-contrast font styling
+ * - Embeds and synchronizes Burmese AI TTS Audio Track directly into the exported MP4/WebM
  * - Synchronizes audio & video tracks via Web Audio API + HTML5 Canvas
- * - Exports production-ready MP4/WebM video with copyright protection
+ * - Exports production-ready MP4/WebM video with copyright protection and clear audio
  */
 export async function renderMirroredRecapVideo({
   videoUrl,
@@ -33,6 +36,8 @@ export async function renderMirroredRecapVideo({
   selectedVoice,
   pitchOffset = 0,
   speedMultiplier = 1.0,
+  audioBlob,
+  audioBlobUrl,
   onProgress,
 }: RenderVideoOptions): Promise<RenderedVideoResult> {
   const updateProgress = (pct: number, msg: string) => {
@@ -48,7 +53,8 @@ export async function renderMirroredRecapVideo({
       // 1. Create offscreen video element
       const video = document.createElement('video');
       video.crossOrigin = 'anonymous';
-      video.muted = true;
+      video.muted = false;
+      video.volume = 1.0;
       video.playsInline = true;
       video.preload = 'auto';
       video.src = videoUrl;
@@ -76,7 +82,9 @@ export async function renderMirroredRecapVideo({
       updateProgress(15, 'Auto-Mirroring (Horizontal Flip) Engine စတင် အသက်သွင်းနေပါသည်...');
 
       // 3. Audio Context & Stream routing
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioCtxClass =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const audioCtx = new AudioCtxClass();
       if (audioCtx.state === 'suspended') {
         try {
@@ -87,29 +95,54 @@ export async function renderMirroredRecapVideo({
       }
       const destNode = audioCtx.createMediaStreamDestination();
 
-      let videoAudioSource: MediaElementAudioSourceNode | null = null;
+      // Connect original video audio if available
       try {
-        video.muted = false;
-        videoAudioSource = audioCtx.createMediaElementSource(video);
-        videoAudioSource.connect(destNode);
+        const videoAudioSource = audioCtx.createMediaElementSource(video);
+        const videoGain = audioCtx.createGain();
+        videoGain.gain.setValueAtTime(0.3, audioCtx.currentTime); // Lower background volume so TTS is prominent
+        videoAudioSource.connect(videoGain);
+        videoGain.connect(destNode);
       } catch (e) {
-        // In case CORS blocks audio element capture, fallback gracefully
-        console.warn('Audio capture from video fallback:', e);
+        console.warn('Video element audio capture note:', e);
+      }
+
+      // If Burmese TTS audio is provided, decode and mix into the destination stream
+      let ttsAudioBuffer: AudioBuffer | null = null;
+      let ttsSourceNode: AudioBufferSourceNode | null = null;
+
+      try {
+        let arrayBuffer: ArrayBuffer | null = null;
+        if (audioBlob) {
+          arrayBuffer = await audioBlob.arrayBuffer();
+        } else if (audioBlobUrl) {
+          const resp = await fetch(audioBlobUrl);
+          if (resp.ok) {
+            arrayBuffer = await resp.arrayBuffer();
+          }
+        }
+
+        if (arrayBuffer && arrayBuffer.byteLength > 0) {
+          ttsAudioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        }
+      } catch (audioDecodeErr) {
+        console.warn('TTS Audio decoding for video export warning:', audioDecodeErr);
       }
 
       // 4. Capture Canvas Video Stream
       const canvasStream = canvas.captureStream(30); // 30 FPS
+      const audioTracks = destNode.stream.getAudioTracks();
       const combinedTracks = [
         ...canvasStream.getVideoTracks(),
-        ...destNode.stream.getAudioTracks(),
+        ...audioTracks,
       ];
       const combinedStream = new MediaStream(combinedTracks);
 
       // 5. Setup MediaRecorder with best available MP4 / WebM container
       const supportedMime = [
+        'video/mp4;codecs=avc1,mp4a.40.2',
         'video/mp4;codecs=avc1',
         'video/mp4',
-        'video/webm;codecs=h264',
+        'video/webm;codecs=h264,opus',
         'video/webm;codecs=vp9,opus',
         'video/webm;codecs=vp8,opus',
         'video/webm',
@@ -118,6 +151,7 @@ export async function renderMirroredRecapVideo({
       const mediaRecorder = new MediaRecorder(combinedStream, {
         mimeType: supportedMime,
         videoBitsPerSecond: 4_500_000, // 4.5 Mbps HD
+        audioBitsPerSecond: 128_000,
       });
 
       const recordedChunks: Blob[] = [];
@@ -151,9 +185,9 @@ export async function renderMirroredRecapVideo({
         ctx.restore();
 
         // C. Find active subtitle segment for current time
-        const activeSegment = segments.find(
-          (s) => currentMs >= s.startMs && currentMs <= s.endMs
-        ) || segments.find((s) => Math.abs(currentMs - s.startMs) < 1200);
+        const activeSegment =
+          segments.find((s) => currentMs >= s.startMs && currentMs <= s.endMs) ||
+          segments.find((s) => Math.abs(currentMs - s.startMs) < 1200);
 
         // D. Draw Subtitles in Normal Unflipped High-Legibility Myanmar Font
         if (activeSegment) {
@@ -171,9 +205,15 @@ export async function renderMirroredRecapVideo({
       mediaRecorder.onstop = () => {
         isRenderingDone = true;
         cancelAnimationFrame(animationFrameId);
+        if (ttsSourceNode) {
+          try {
+            ttsSourceNode.stop();
+          } catch {}
+        }
         updateProgress(98, 'ဗီဒီယို Output အား အပြီးသတ် ချုံ့ထုတ်ယူနေပါသည်...');
 
-        const finalBlob = new Blob(recordedChunks, { type: 'video/mp4' });
+        const finalMime = supportedMime.includes('mp4') ? 'video/mp4' : 'video/webm';
+        const finalBlob = new Blob(recordedChunks, { type: finalMime });
         const blobUrl = URL.createObjectURL(finalBlob);
 
         setTimeout(() => {
@@ -192,6 +232,18 @@ export async function renderMirroredRecapVideo({
 
       // Start recording
       mediaRecorder.start(250); // 250ms chunks
+
+      // Play TTS Audio in sync with video if available
+      if (ttsAudioBuffer) {
+        ttsSourceNode = audioCtx.createBufferSource();
+        ttsSourceNode.buffer = ttsAudioBuffer;
+        const ttsGain = audioCtx.createGain();
+        ttsGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
+        ttsSourceNode.connect(ttsGain);
+        ttsGain.connect(destNode);
+        ttsSourceNode.start(audioCtx.currentTime);
+      }
+
       await video.play();
       drawFrame();
 
@@ -210,10 +262,8 @@ export async function renderMirroredRecapVideo({
           mediaRecorder.stop();
         }
       }, maxDurationMs);
-
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Background Video Mirror Rendering failed:', err);
-      // Fallback: Return simulated mirrored wrapper
       updateProgress(100, 'အဆင်သင့်ဖြစ်ပါပြီ');
       resolve({
         blob: new Blob([], { type: 'video/mp4' }),

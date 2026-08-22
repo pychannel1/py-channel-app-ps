@@ -29,7 +29,7 @@ import { DownloadsModal } from './components/DownloadsModal';
 import { ProfileModal } from './components/ProfileModal';
 import { SupportModal } from './components/SupportModal';
 import { LogoutModal } from './components/LogoutModal';
-import { playVoicePreview, unlockAudioContext } from './utils/audioSynthesis';
+import { playVoicePreview, unlockAudioContext, generateBurmeseAudioBlob } from './utils/audioSynthesis';
 
 function MainStudioApp() {
   const { language, t } = useLanguage();
@@ -116,6 +116,8 @@ function MainStudioApp() {
   const [isPlayingVoicePreview, setIsPlayingVoicePreview] = useState(false);
   const [isSynthesizingVoice, setIsSynthesizingVoice] = useState(false);
   const [activeVoiceController, setActiveVoiceController] = useState<{ stop: () => void } | null>(null);
+  const [generatedAudioBlob, setGeneratedAudioBlob] = useState<Blob | null>(null);
+  const [generatedAudioBlobUrl, setGeneratedAudioBlobUrl] = useState<string | null>(null);
 
   // Step 4: Video Rendering State
   const [isRendering, setIsRendering] = useState(false);
@@ -539,7 +541,7 @@ function MainStudioApp() {
     handleStopVoicePreview();
     setIsSynthesizingVoice(true);
     setIsRendering(true);
-    setRenderProgress(10);
+    setRenderProgress(15);
     setRenderPhase(
       language === 'mm'
         ? '၁/၃။ မြန်မာအသံဖိုင် စီစဉ်ဖန်တီးခြင်း (Neural TTS Synthesis)...'
@@ -548,21 +550,45 @@ function MainStudioApp() {
     setCurrentStep(4);
 
     try {
-      await new Promise((r) => setTimeout(r, 900));
-      setRenderProgress(45);
+      // Build full Myanmar script text from segments
+      const fullBurmeseText = segments
+        .map((s) => s.myanmarText || s.sourceText)
+        .filter((t) => Boolean(t && t.trim()))
+        .join(' ... ');
+
+      setRenderProgress(35);
+      // Synthesize authentic neural Burmese voice audio blob
+      const audioResult = await generateBurmeseAudioBlob({
+        text: fullBurmeseText || selectedVoice.samplePhraseBurmese,
+        voice: selectedVoice,
+        pitchOffsetHz: pitchOffset || adminConfig.globalPitchHz,
+        speedMultiplier: speedMultiplier || adminConfig.globalSpeed,
+      });
+
+      if (generatedAudioBlobUrl) {
+        try {
+          URL.revokeObjectURL(generatedAudioBlobUrl);
+        } catch {}
+      }
+
+      setGeneratedAudioBlob(audioResult.blob);
+      setGeneratedAudioBlobUrl(audioResult.blobUrl);
+
+      setRenderProgress(65);
       setRenderPhase(
         language === 'mm'
           ? '၂/၃။ AI Stretch/Compress Engine ဖြင့် ဗီဒီယိုနှင့် အသံ အချိန်ကိုက် ညှိခြင်း...'
           : '2/3. Syncing audio timing with video pacing engine...'
       );
-      await new Promise((r) => setTimeout(r, 900));
-      setRenderProgress(80);
+      await new Promise((r) => setTimeout(r, 600));
+
+      setRenderProgress(90);
       setRenderPhase(
         language === 'mm'
           ? '၃/၃။ 1080p HD Video Output ပေါင်းစပ်ဖန်တီးခြင်း...'
           : '3/3. Rendering final 1080p HD video output...'
       );
-      await new Promise((r) => setTimeout(r, 900));
+      await new Promise((r) => setTimeout(r, 600));
 
       setRenderProgress(100);
       setIsSynthesizingVoice(false);
@@ -585,6 +611,13 @@ function MainStudioApp() {
 
   const handleStartNewProject = () => {
     handleStopVoicePreview();
+    if (generatedAudioBlobUrl) {
+      try {
+        URL.revokeObjectURL(generatedAudioBlobUrl);
+      } catch {}
+    }
+    setGeneratedAudioBlob(null);
+    setGeneratedAudioBlobUrl(null);
     setSelectedVideoFile(null);
     setVideoPreviewUrl(SAMPLE_MOVIES[0].videoUrl);
     setVideoFileName(`${SAMPLE_MOVIES[0].title}.mp4`);
@@ -735,6 +768,8 @@ function MainStudioApp() {
         {currentStep === 4 && (
           <Step4Results
             videoPreviewUrl={videoPreviewUrl}
+            generatedAudioBlob={generatedAudioBlob}
+            generatedAudioBlobUrl={generatedAudioBlobUrl}
             segments={segments}
             selectedVoice={selectedVoice}
             pitchOffset={pitchOffset}

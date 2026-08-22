@@ -1,11 +1,23 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { TranscriptSegment, BurmeseVoiceAvatar } from '../types';
-import { Play, Pause, Download, RefreshCw, Film, Volume2, Sparkles, Sliders, CheckCircle2, Clock, Music2, Share2, Layers, Video } from 'lucide-react';
-import { generateSRT, downloadFile, playVoicePreview, unlockAudioContext } from '../utils/audioSynthesis';
+import {
+  Play,
+  Pause,
+  Download,
+  RefreshCw,
+  Sparkles,
+  Music2,
+  Layers,
+  AlertCircle,
+  Volume2,
+} from 'lucide-react';
+import { generateSRT, downloadFile, unlockAudioContext } from '../utils/audioSynthesis';
 import { renderMirroredRecapVideo } from '../utils/videoRenderEngine';
 
 interface Step4ResultsProps {
   videoPreviewUrl: string | null;
+  generatedAudioBlob: Blob | null;
+  generatedAudioBlobUrl: string | null;
   segments: TranscriptSegment[];
   selectedVoice: BurmeseVoiceAvatar;
   pitchOffset: number;
@@ -20,6 +32,8 @@ interface Step4ResultsProps {
 
 export const Step4Results: React.FC<Step4ResultsProps> = ({
   videoPreviewUrl,
+  generatedAudioBlob,
+  generatedAudioBlobUrl,
   segments,
   selectedVoice,
   pitchOffset,
@@ -27,26 +41,40 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
   isRendering,
   renderProgress,
   renderPhase,
-  isRenderComplete,
   onStartNewProject,
-  onReRender,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [currentSubtitle, setCurrentSubtitle] = useState<string>('');
   const [audioPreviewPlaying, setAudioPreviewPlaying] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
-  const [activeDubController, setActiveDubController] = useState<{ stop: () => void } | null>(null);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
 
-  // Background Mirroring & Rendering State (Hidden from UI manual controls)
+  // Background Mirroring & Rendering State
   const [isExportingMirrored, setIsExportingMirrored] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportPhase, setExportPhase] = useState('');
   const [cachedMirroredBlobUrl, setCachedMirroredBlobUrl] = useState<string | null>(null);
 
-  // Sync subtitle with video current time
+  // Initialize Video and Audio elements with volume 1.0 and unmuted state
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.volume = 1.0;
+      videoRef.current.muted = false;
+      videoRef.current.defaultMuted = false;
+    }
+    if (audioRef.current) {
+      audioRef.current.volume = 1.0;
+      audioRef.current.muted = false;
+      audioRef.current.defaultMuted = false;
+    }
+  }, [generatedAudioBlobUrl, videoPreviewUrl]);
+
+  // Sync subtitle and audio with video current time
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -64,11 +92,18 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
       if (activeSeg) {
         setCurrentSubtitle(activeSeg.myanmarText || activeSeg.sourceText);
       } else {
-        // Find nearest if close
         const closeSeg = segments.find(
           (s) => Math.abs(currentMs - s.startMs) < 1500
         );
         setCurrentSubtitle(closeSeg ? closeSeg.myanmarText || closeSeg.sourceText : '');
+      }
+
+      // Keep audio synchronized with video
+      if (audioRef.current && !audioRef.current.paused) {
+        const diff = Math.abs(audioRef.current.currentTime - time);
+        if (diff > 0.3) {
+          audioRef.current.currentTime = time;
+        }
       }
     };
 
@@ -76,28 +111,90 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
       setDuration(video.duration || 0);
     };
 
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
+    const handlePlay = () => {
+      setIsPlaying(true);
+      setPlaybackError(null);
+      // Synchronously play Burmese Dubbed Audio with video
+      if (audioRef.current && generatedAudioBlobUrl) {
+        audioRef.current.currentTime = video.currentTime;
+        audioRef.current.play().catch((err) => {
+          console.error('Audio sync playback failed:', err);
+        });
+      }
+    };
+
+    const handlePause = () => {
+      setIsPlaying(false);
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+      }
+    };
+
+    const handleEnded = () => {
+      setIsPlaying(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+    };
 
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
+    video.addEventListener('ended', handleEnded);
 
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
+      video.removeEventListener('ended', handleEnded);
     };
-  }, [segments]);
+  }, [segments, generatedAudioBlobUrl]);
 
-  const togglePlay = () => {
+  // Video Play/Pause controller with user gesture audio unlock
+  const togglePlay = async () => {
+    setPlaybackError(null);
+    await unlockAudioContext();
+
     if (videoRef.current) {
-      if (videoRef.current.paused) {
-        videoRef.current.play();
-      } else {
-        videoRef.current.pause();
+      try {
+        if (videoRef.current.paused) {
+          videoRef.current.volume = 1.0;
+          videoRef.current.muted = false;
+          await videoRef.current.play();
+        } else {
+          videoRef.current.pause();
+        }
+      } catch (err) {
+        console.error('Video/Audio playback error:', err);
+        setPlaybackError('Audio playback failed. Tap Play again.');
+      }
+    }
+  };
+
+  // Dubbed Audio Play/Pause controller
+  const handleToggleDubbedAudio = async () => {
+    setPlaybackError(null);
+    await unlockAudioContext();
+
+    if (!audioRef.current) return;
+
+    if (audioPreviewPlaying) {
+      audioRef.current.pause();
+      setAudioPreviewPlaying(false);
+    } else {
+      try {
+        audioRef.current.volume = 1.0;
+        audioRef.current.muted = false;
+        audioRef.current.playbackRate = Math.max(0.5, Math.min(2.0, speedMultiplier || 1.0));
+        await audioRef.current.play();
+        setAudioPreviewPlaying(true);
+      } catch (err) {
+        console.error('Audio playback failed:', err);
+        setPlaybackError('Audio playback failed. Tap Play again.');
+        setAudioPreviewPlaying(false);
       }
     }
   };
@@ -109,11 +206,10 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
     setTimeout(() => setDownloadSuccess(null), 3500);
   };
 
-  // Background Automatic Mirroring Render & Download Handler
+  // Background Automatic Mirroring Render & Download Handler with embedded Audio Track
   const handleDownloadMirroredMP4 = async () => {
     if (!videoPreviewUrl) return;
 
-    // If already pre-rendered in background
     if (cachedMirroredBlobUrl) {
       const a = document.createElement('a');
       a.href = cachedMirroredBlobUrl;
@@ -126,7 +222,6 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
       return;
     }
 
-    // Execute Background Auto-Mirroring Render Pipeline
     setIsExportingMirrored(true);
     setExportProgress(10);
     setExportPhase('Auto-Mirroring & Background Video Processing စတင်နေပါသည်...');
@@ -138,6 +233,8 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
         selectedVoice,
         pitchOffset,
         speedMultiplier,
+        audioBlob: generatedAudioBlob,
+        audioBlobUrl: generatedAudioBlobUrl,
         onProgress: (pct, phase) => {
           setExportProgress(pct);
           setExportPhase(phase);
@@ -146,7 +243,6 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
 
       setCachedMirroredBlobUrl(result.blobUrl);
 
-      // Trigger automatic download of the horizontally flipped MP4
       const a = document.createElement('a');
       a.href = result.blobUrl;
       a.download = result.filename || 'pY_Channel_AI_Recap_Mirrored.mp4';
@@ -160,7 +256,6 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
     } catch (err) {
       console.error('Background mirror export error:', err);
       setIsExportingMirrored(false);
-      // Fallback direct download
       const a = document.createElement('a');
       a.href = videoPreviewUrl;
       a.download = 'pY_Channel_AI_Recap_Mirrored.mp4';
@@ -169,38 +264,6 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
       document.body.removeChild(a);
       setDownloadSuccess('Recap Video (.mp4) download started!');
       setTimeout(() => setDownloadSuccess(null), 3500);
-    }
-  };
-
-  // Play continuous dubbed voice sample
-  const handleToggleDubbedAudio = async () => {
-    if (audioPreviewPlaying) {
-      if (activeDubController) {
-        activeDubController.stop();
-        setActiveDubController(null);
-      }
-      setAudioPreviewPlaying(false);
-    } else {
-      await unlockAudioContext();
-      setIsPlaying(false);
-      setAudioPreviewPlaying(true);
-      const combinedBurmeseText = segments
-        .slice(0, 3)
-        .map((s) => s.myanmarText || s.sourceText)
-        .join(' ... ');
-
-      const controller = await playVoicePreview({
-        voice: selectedVoice,
-        pitchOffsetHz: pitchOffset,
-        speedMultiplier: speedMultiplier,
-        customText: combinedBurmeseText,
-        onEnded: () => {
-          setAudioPreviewPlaying(false);
-          setActiveDubController(null);
-        },
-      });
-
-      setActiveDubController(controller);
     }
   };
 
@@ -241,7 +304,32 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
         </div>
       </div>
 
-      {/* Rendering State Overlay or Progress Bar */}
+      {/* Playback Error Notice */}
+      {playbackError && (
+        <div className="p-3.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 flex items-center justify-between gap-3 text-xs font-medium animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <span>{playbackError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={togglePlay}
+            className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer"
+          >
+            Tap Play
+          </button>
+        </div>
+      )}
+
+      {/* Download Success Notice */}
+      {downloadSuccess && (
+        <div className="p-3.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 flex items-center gap-2 text-xs font-medium animate-fadeIn">
+          <Sparkles className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <span>{downloadSuccess}</span>
+        </div>
+      )}
+
+      {/* Rendering State Overlay */}
       {(isRendering || isExportingMirrored) && (
         <div className="glass-panel-glow p-6 sm:p-8 rounded-2xl border border-amber-500/40 text-center space-y-4 bg-slate-950/95 backdrop-blur-xl shadow-2xl">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 mb-1">
@@ -286,10 +374,28 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
                 style={{ transform: 'scaleX(-1)' }}
                 className="w-full h-full object-contain"
                 playsInline
+                preload="auto"
                 onClick={togglePlay}
               />
 
-              {/* Subtitle Overlay with Dark Glass backdrop & Karaoke glow (Rendered Unflipped for crystal-clear readability) */}
+              {/* Hidden Synchronized Dubbed Audio Element */}
+              <audio
+                ref={audioRef}
+                src={generatedAudioBlobUrl || ''}
+                crossOrigin="anonymous"
+                playsInline
+                preload="auto"
+                onPlay={() => setAudioPreviewPlaying(true)}
+                onPause={() => setAudioPreviewPlaying(false)}
+                onEnded={() => setAudioPreviewPlaying(false)}
+                onError={(e) => {
+                  console.error('HTML5 Audio playback error event:', e);
+                  setPlaybackError('Audio playback failed. Tap Play again.');
+                  setAudioPreviewPlaying(false);
+                }}
+              />
+
+              {/* Subtitle Overlay with Dark Glass backdrop & Karaoke glow */}
               {currentSubtitle && (
                 <div className="absolute bottom-6 inset-x-4 flex justify-center pointer-events-none z-20">
                   <div className="px-4 py-2 rounded-xl bg-black/85 backdrop-blur-md border border-amber-500/40 text-center max-w-[90%] shadow-2xl transition-all">
@@ -326,9 +432,13 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
                 <button
                   id="video-play-toggle-btn"
                   onClick={togglePlay}
-                  className="w-8 h-8 rounded-lg bg-amber-500 text-slate-950 font-bold flex items-center justify-center hover:bg-amber-400 transition-all cursor-pointer"
+                  className="w-8 h-8 rounded-lg bg-amber-500 text-slate-950 font-bold flex items-center justify-center hover:bg-amber-400 transition-all cursor-pointer shadow-md"
                 >
-                  {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                  {isPlaying ? (
+                    <Pause className="w-4 h-4 fill-current" />
+                  ) : (
+                    <Play className="w-4 h-4 fill-current ml-0.5" />
+                  )}
                 </button>
                 <div className="text-xs font-mono text-slate-300">
                   <span className="text-amber-400">{formatSeconds(currentTime)}</span> / {formatSeconds(duration)}
@@ -347,6 +457,9 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
                   setCurrentTime(val);
                   if (videoRef.current) {
                     videoRef.current.currentTime = val;
+                  }
+                  if (audioRef.current) {
+                    audioRef.current.currentTime = val;
                   }
                 }}
                 className="flex-1 accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
@@ -372,7 +485,7 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
               </span>
             </div>
 
-            {/* Audio Waveform visualization */}
+            {/* Audio Waveform visualization + Control */}
             <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/70 border border-white/5">
               <button
                 id="dubbed-audio-preview-toggle-btn"
@@ -383,7 +496,11 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
                     : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30'
                 }`}
               >
-                {audioPreviewPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                {audioPreviewPlaying ? (
+                  <Pause className="w-4 h-4" />
+                ) : (
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                )}
               </button>
 
               {/* Animated Audio Equalizer Waveform */}
@@ -397,12 +514,32 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
                         : 'bg-slate-700'
                     }`}
                     style={{
-                      height: audioPreviewPlaying ? `${Math.min(100, (h * (1 + Math.sin(i + currentTime * 5) * 0.4)))}%` : `${h * 0.4}%`,
+                      height: audioPreviewPlaying
+                        ? `${Math.min(100, h * (1 + Math.sin(i + currentTime * 5) * 0.4))}%`
+                        : `${h * 0.4}%`,
                     }}
                   />
                 ))}
               </div>
+
+              <div className="flex items-center gap-1.5 text-xs text-indigo-300 font-mono">
+                <Volume2 className="w-3.5 h-3.5" />
+                <span>100%</span>
+              </div>
             </div>
+
+            {/* Native HTML5 Audio Controls for maximum mobile accessibility */}
+            {generatedAudioBlobUrl && (
+              <div className="pt-1">
+                <audio
+                  controls
+                  playsInline
+                  preload="auto"
+                  src={generatedAudioBlobUrl}
+                  className="w-full h-8 opacity-80 hover:opacity-100 transition-opacity"
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -449,78 +586,44 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
                             : 'bg-amber-950 text-amber-300 border border-amber-500/30'
                         }`}
                       >
-                        {ratio.toFixed(2)}x Sync
+                        {isFast ? `Speed: ${ratio.toFixed(2)}x` : `Stretch: ${ratio.toFixed(2)}x`}
                       </span>
                     </div>
                   </div>
                 );
               })}
             </div>
-
-            <div className="p-2.5 rounded-xl bg-slate-950/60 border border-white/5 text-[11px] text-slate-400 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-              <span>Perfect Audio-Video Lip Sync & Pacing Lock Active</span>
-            </div>
           </div>
 
-          {/* Download & Export Action Card */}
-          <div className="glass-panel-amber p-5 rounded-2xl border border-amber-500/30 space-y-3.5">
-            <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
-              <Download className="w-4 h-4 text-amber-400" />
-              Export & Download Ready
-            </h3>
-
-            {downloadSuccess && (
-              <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                <span>{downloadSuccess}</span>
-              </div>
-            )}
-
-            {/* Button 1: Download AI Recap Video (.mp4) / ဗီဒီယို ထုတ်ယူမည် (Render Recap Video) */}
+          {/* Export & Download Action Buttons */}
+          <div className="space-y-3 pt-2">
+            {/* Automatic Mirrored 1080p MP4 Download Button */}
             <button
-              id="download-recap-video-btn"
-              disabled={isExportingMirrored || isRendering}
+              id="download-mirrored-mp4-btn"
               onClick={handleDownloadMirroredMP4}
-              className="w-full py-3.5 px-5 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-bold text-sm shadow-xl shadow-amber-500/30 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+              disabled={isExportingMirrored || isRendering}
+              className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 text-black text-sm font-bold shadow-lg shadow-amber-500/25 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50"
             >
-              {isExportingMirrored ? (
-                <>
-                  <Sparkles className="w-4 h-4 animate-spin" />
-                  <span className="font-burmese">ဗီဒီယို ထုတ်ယူနေပါသည် ({exportProgress}%)...</span>
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4" />
-                  <span>📥 ဗီဒီယို ထုတ်ယူမည် (Render Recap Video .mp4)</span>
-                </>
-              )}
+              <Download className="w-4 h-4" />
+              <span>
+                {isExportingMirrored
+                  ? 'Rendering Mirrored MP4 Video...'
+                  : '🎥 Download Final Mirrored Video (.mp4)'}
+              </span>
             </button>
 
-            {/* Button 2: Download Subtitle (.srt) — လုပ်မည့် timing ကိုက်ညှိဖိုင် (Secondary Button) */}
+            {/* Download SRT Subtitles Button */}
             <button
-              id="download-subtitle-srt-btn"
+              id="download-srt-btn"
               onClick={handleDownloadSRT}
-              className="w-full py-2.5 px-4 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-amber-300 border border-amber-500/40 font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-white/10 transition-all cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5 text-amber-400" />
-              <span>📥 Download Subtitle (.srt) — လုပ်မည့် timing ကိုက်ညှိဖိုင်</span>
+              <Download className="w-3.5 h-3.5 text-slate-400" />
+              <span>Download SRT Subtitles (.srt)</span>
             </button>
-
-            {/* Re-render option */}
-            <div className="text-center pt-1">
-              <button
-                id="re-render-btn"
-                onClick={onReRender}
-                className="text-[11px] text-slate-400 hover:text-amber-300 underline cursor-pointer"
-              >
-                အသံ/စာသား ပြန်လည်ချိန်ညှိပြီး Re-render ပြုလုပ်မည်
-              </button>
-            </div>
           </div>
         </div>
       </div>
     </div>
   );
 };
-
