@@ -1,6 +1,12 @@
 import { normalizeMyanmarForTTS } from '../utils/myanmarTextNormalizer';
 import { unlockAudioContext } from '../utils/audioSynthesis';
 
+declare global {
+  interface Window {
+    currentAudio?: HTMLAudioElement | null;
+  }
+}
+
 let activeAudioElement: HTMLAudioElement | null = null;
 
 /**
@@ -8,18 +14,20 @@ let activeAudioElement: HTMLAudioElement | null = null;
  */
 let sharedServiceAudio: HTMLAudioElement | null = null;
 
-function getSharedServiceAudio(): HTMLAudioElement {
+export function getSharedServiceAudio(): HTMLAudioElement {
   if (!sharedServiceAudio) {
     sharedServiceAudio = new Audio();
     sharedServiceAudio.crossOrigin = 'anonymous';
     sharedServiceAudio.preload = 'auto';
+    sharedServiceAudio.volume = 1.0;
+    sharedServiceAudio.muted = false;
   }
   return sharedServiceAudio;
 }
 
 /**
  * 100% Guaranteed Working Multi-Endpoint Client-Side Myanmar Speech & Audio Player
- * Bypasses all browser restrictions with multi-mirror CDN and Web Speech fallback.
+ * Bypasses all browser restrictions with multi-mirror CDN, backend synthesis, and Web Speech fallback.
  */
 export async function playMyanmarVoiceModel(
   text: string,
@@ -30,13 +38,18 @@ export async function playMyanmarVoiceModel(
   await unlockAudioContext();
 
   const sampleText = text.trim() || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်';
-  const encodedText = encodeURIComponent(sampleText.substring(0, 200));
+  const encodedText = encodeURIComponent(sampleText.substring(0, 250));
 
   // Determine gender/voice based on index
   const isMale = voiceIndex % 2 === 0;
-  const voiceParam = isMale ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural';
 
   // Stop any previous playing audio
+  if (window.currentAudio) {
+    try {
+      window.currentAudio.pause();
+      window.currentAudio.currentTime = 0;
+    } catch {}
+  }
   if (activeAudioElement) {
     try {
       activeAudioElement.pause();
@@ -61,13 +74,18 @@ export async function playMyanmarVoiceModel(
       const blob = await previewRes.blob();
       if (blob.size > 50) {
         const audioUrl = URL.createObjectURL(blob);
-        const audio = getSharedServiceAudio();
-        activeAudioElement = audio;
-        audio.src = audioUrl;
+        const audio = new Audio(audioUrl);
+        audio.volume = 1.0;
+        audio.muted = false;
         audio.playbackRate = Math.min(Math.max(speed, 0.5), 2.0);
+
+        window.currentAudio = audio;
+        activeAudioElement = audio;
 
         audio.onended = () => {
           URL.revokeObjectURL(audioUrl);
+          if (window.currentAudio === audio) window.currentAudio = null;
+          if (activeAudioElement === audio) activeAudioElement = null;
         };
 
         const playPromise = audio.play();
@@ -83,20 +101,24 @@ export async function playMyanmarVoiceModel(
 
   // 2. Reliable Audio Source URLs for Myanmar Speech
   const audioUrls = [
+    `/api/stream-tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&rate=${speed}`,
+    `/api/tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&rate=${speed}`,
     `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${encodedText}`,
+    `https://dict.youdao.com/dictvoice?audio=${encodedText}&le=my`,
     `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(
       isMale ? 'Burmese Male' : 'Burmese Female'
     )}&text=${encodedText}`,
-    `https://dict.youdao.com/dictvoice?audio=${encodedText}&le=my`,
-    `/api/tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&rate=${speed}`,
   ];
 
   for (const url of audioUrls) {
     try {
-      const audio = getSharedServiceAudio();
-      activeAudioElement = audio;
-      audio.src = url;
+      const audio = new Audio(url);
+      audio.volume = 1.0;
+      audio.muted = false;
       audio.playbackRate = Math.min(Math.max(speed, 0.5), 2.0);
+
+      window.currentAudio = audio;
+      activeAudioElement = audio;
 
       const playPromise = audio.play();
       if (playPromise !== undefined) {
@@ -226,6 +248,12 @@ export async function playMyanmarSpeech(
   await unlockAudioContext();
 
   // Stop existing audio
+  if (window.currentAudio) {
+    try {
+      window.currentAudio.pause();
+      window.currentAudio.currentTime = 0;
+    } catch {}
+  }
   if (activeAudioElement) {
     try {
       activeAudioElement.pause();
@@ -235,29 +263,32 @@ export async function playMyanmarSpeech(
   }
 
   const cleanText = text.trim() || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်ကြောင်းပြော Studio မှ ကြိုဆိုပါသည်';
-  const audio = getSharedServiceAudio();
+  const audio = new Audio();
+  audio.volume = 1.0;
+  audio.muted = false;
+  audio.playbackRate = Math.max(0.5, Math.min(2.0, speed || 1.0));
+
+  window.currentAudio = audio;
   activeAudioElement = audio;
 
   let isStopped = false;
 
   const stopAudio = () => {
     isStopped = true;
-    if (activeAudioElement) {
-      try {
-        activeAudioElement.pause();
-        activeAudioElement.currentTime = 0;
-      } catch {}
-      activeAudioElement = null;
-    }
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+    } catch {}
+    if (window.currentAudio === audio) window.currentAudio = null;
+    if (activeAudioElement === audio) activeAudioElement = null;
     if (onEnded) onEnded();
   };
 
   audio.onended = () => {
+    if (window.currentAudio === audio) window.currentAudio = null;
     if (activeAudioElement === audio) activeAudioElement = null;
     if (!isStopped && onEnded) onEnded();
   };
-
-  audio.playbackRate = Math.max(0.5, Math.min(2.0, speed || 1.0));
 
   try {
     const blob = await fetchMyanmarTTSAudioBlob(cleanText, voiceGender, speed, pitchOffset);
@@ -266,6 +297,7 @@ export async function playMyanmarSpeech(
       audio.src = audioUrl;
       audio.onended = () => {
         URL.revokeObjectURL(audioUrl);
+        if (window.currentAudio === audio) window.currentAudio = null;
         if (activeAudioElement === audio) activeAudioElement = null;
         if (!isStopped && onEnded) onEnded();
       };
@@ -277,8 +309,11 @@ export async function playMyanmarSpeech(
       await audio.play();
     }
   } catch (err) {
-    console.error('Audio playback error in playMyanmarSpeech:', err);
-    if (!isStopped && onEnded) onEnded();
+    console.error('Audio playback error in playMyanmarSpeech, trying fallback player:', err);
+    if (!isStopped) {
+      await playMyanmarVoiceModel(cleanText, voiceGender === 'male' ? 0 : 1, speed);
+      if (onEnded) onEnded();
+    }
   }
 
   return { stop: stopAudio };

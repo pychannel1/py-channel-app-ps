@@ -524,6 +524,13 @@ function MainStudioApp() {
   };
 
   const handleStopVoicePreview = () => {
+    if (window.currentAudio) {
+      try {
+        window.currentAudio.pause();
+        window.currentAudio.currentTime = 0;
+      } catch {}
+      window.currentAudio = null;
+    }
     if (activeVoiceController) {
       activeVoiceController.stop();
       setActiveVoiceController(null);

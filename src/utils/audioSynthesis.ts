@@ -399,7 +399,7 @@ export async function playVoicePreview(
 
   // 1. Check in-memory decoded Web Audio buffer cache
   const cachedBuffer = audioBufferCache.get(cacheKey);
-  if (cachedBuffer) {
+  if (cachedBuffer && ctx.state === 'running') {
     playAudioBufferWithWebAudio(cachedBuffer, effectiveSpeed, () => {
       if (!isStopped && onEndedCallback) onEndedCallback();
     }).then((ctrl) => {
@@ -437,53 +437,63 @@ export async function playVoicePreview(
       if (isStopped) return;
 
       if (arrayBuffer.byteLength > 50) {
-        // Decode Web Audio buffer
-        try {
-          const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
-          audioBufferCache.set(cacheKey, decoded);
+        const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+        const blobUrl = URL.createObjectURL(blob);
 
+        const audio = new Audio(blobUrl);
+        audio.volume = 1.0;
+        audio.muted = false;
+        audio.playbackRate = effectiveSpeed;
+
+        currentActiveAudio = audio;
+        window.currentAudio = audio;
+
+        audio.onended = () => {
+          URL.revokeObjectURL(blobUrl);
+          if (currentActiveAudio === audio) currentActiveAudio = null;
+          if (window.currentAudio === audio) window.currentAudio = null;
+          if (!isStopped && onEndedCallback) onEndedCallback();
+        };
+
+        audio.onerror = () => {
+          URL.revokeObjectURL(blobUrl);
+          if (currentActiveAudio === audio) currentActiveAudio = null;
+          if (window.currentAudio === audio) window.currentAudio = null;
           if (!isStopped) {
-            const ctrl = await playAudioBufferWithWebAudio(decoded, effectiveSpeed, () => {
-              if (!isStopped && onEndedCallback) onEndedCallback();
-            });
-            innerController = ctrl;
-            return;
+            playMyanmarVoiceModel(sampleText, targetVoice.gender === 'male' ? 0 : 1, effectiveSpeed);
           }
-        } catch (decodeErr) {
-          console.warn('Web Audio decode failed, playing with HTMLAudioElement fallback:', decodeErr);
-        }
+          if (!isStopped && onEndedCallback) onEndedCallback();
+        };
 
-        // HTML5 Audio fallback
-        if (!isStopped) {
-          const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
-          const blobUrl = URL.createObjectURL(blob);
-          const audio = getSharedPreviewAudio();
-          currentActiveAudio = audio;
-          audio.src = blobUrl;
-          audio.volume = 1.0;
-          audio.muted = false;
-          audio.playbackRate = effectiveSpeed;
-
-          audio.onended = () => {
-            URL.revokeObjectURL(blobUrl);
-            if (currentActiveAudio === audio) currentActiveAudio = null;
-            if (!isStopped && onEndedCallback) onEndedCallback();
-          };
-
-          audio.onerror = () => {
-            URL.revokeObjectURL(blobUrl);
-            if (!isStopped && onEndedCallback) onEndedCallback();
-          };
-
+        // Attempt direct audio playback
+        try {
           await audio.play();
-          return;
+        } catch (playErr) {
+          console.warn('Audio play notice, falling back to Web Audio / Mirror pipeline:', playErr);
+          if (ctx.state === 'running') {
+            try {
+              const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+              audioBufferCache.set(cacheKey, decoded);
+              if (!isStopped) {
+                const ctrl = await playAudioBufferWithWebAudio(decoded, effectiveSpeed, () => {
+                  if (!isStopped && onEndedCallback) onEndedCallback();
+                });
+                innerController = ctrl;
+                return;
+              }
+            } catch {}
+          }
+          if (!isStopped) {
+            await playMyanmarVoiceModel(sampleText, targetVoice.gender === 'male' ? 0 : 1, effectiveSpeed);
+          }
         }
+        return;
       }
     } catch (err) {
       console.warn('Backend TTS synthesis warning, using multi-mirror fallback player:', err);
       if (!isStopped) {
         try {
-          await playMyanmarVoiceModel(sampleText, 0, effectiveSpeed);
+          await playMyanmarVoiceModel(sampleText, targetVoice.gender === 'male' ? 0 : 1, effectiveSpeed);
         } catch (e) {
           console.error('Final audio fallback failed:', e);
         }
