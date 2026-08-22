@@ -71,6 +71,7 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
       audioRef.current.volume = 1.0;
       audioRef.current.muted = false;
       audioRef.current.defaultMuted = false;
+      audioRef.current.load();
     }
   }, [generatedAudioBlobUrl, videoPreviewUrl]);
 
@@ -111,15 +112,23 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
       setDuration(video.duration || 0);
     };
 
-    const handlePlay = () => {
+    const handlePlay = async () => {
       setIsPlaying(true);
       setPlaybackError(null);
+      await unlockAudioContext();
       // Synchronously play Burmese Dubbed Audio with video
       if (audioRef.current && generatedAudioBlobUrl) {
-        audioRef.current.currentTime = video.currentTime;
-        audioRef.current.play().catch((err) => {
-          console.error('Audio sync playback failed:', err);
-        });
+        try {
+          audioRef.current.currentTime = video.currentTime;
+          audioRef.current.volume = 1.0;
+          audioRef.current.muted = false;
+          await audioRef.current.play();
+        } catch (err: any) {
+          console.warn('Audio sync playback notice:', err);
+          if (err?.name === 'NotAllowedError') {
+            setPlaybackError('Browser autoplay restricted. Tap "Play Dubbed Audio" below to hear sound.');
+          }
+        }
       }
     };
 
@@ -167,9 +176,9 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
         } else {
           videoRef.current.pause();
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Video/Audio playback error:', err);
-        setPlaybackError('Audio playback failed. Tap Play again.');
+        setPlaybackError('Browser playback restricted. Click Play to start.');
       }
     }
   };
@@ -191,9 +200,9 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
         audioRef.current.playbackRate = Math.max(0.5, Math.min(2.0, speedMultiplier || 1.0));
         await audioRef.current.play();
         setAudioPreviewPlaying(true);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Audio playback failed:', err);
-        setPlaybackError('Audio playback failed. Tap Play again.');
+        setPlaybackError('Audio autoplay restricted. Tap Play button again to listen.');
         setAudioPreviewPlaying(false);
       }
     }

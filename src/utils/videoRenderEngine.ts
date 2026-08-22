@@ -1,4 +1,5 @@
 import { TranscriptSegment, BurmeseVoiceAvatar } from '../types';
+import { generateBurmeseAudioBlob } from './audioSynthesis';
 
 export interface RenderProgressCallback {
   (progress: number, phase: string): void;
@@ -119,10 +120,25 @@ export async function renderMirroredRecapVideo({
           if (resp.ok) {
             arrayBuffer = await resp.arrayBuffer();
           }
+        } else if (segments && segments.length > 0 && selectedVoice) {
+          // Auto-generate audio buffer fallback if missing
+          const fullText = segments
+            .map((s) => s.myanmarText || s.sourceText)
+            .filter((t) => Boolean(t && t.trim()))
+            .join(' ... ');
+          const generated = await generateBurmeseAudioBlob({
+            text: fullText || selectedVoice.samplePhraseBurmese,
+            voice: selectedVoice,
+            pitchOffsetHz: pitchOffset,
+            speedMultiplier,
+          });
+          if (generated.blob) {
+            arrayBuffer = await generated.blob.arrayBuffer();
+          }
         }
 
         if (arrayBuffer && arrayBuffer.byteLength > 0) {
-          ttsAudioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+          ttsAudioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
         }
       } catch (audioDecodeErr) {
         console.warn('TTS Audio decoding for video export warning:', audioDecodeErr);

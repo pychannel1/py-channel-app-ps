@@ -141,8 +141,10 @@ export async function generateBurmeseAudioBlob({
     });
 
     if (resp.ok) {
-      const audioBlob = await resp.blob();
-      if (audioBlob.size > 50) {
+      const arrayBuffer = await resp.arrayBuffer();
+      if (arrayBuffer.byteLength > 50) {
+        // Enforce strict audio/mpeg MIME type for standard MP3 browser playback
+        const audioBlob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
         const blobUrl = URL.createObjectURL(audioBlob);
         audioBlobCache.set(cacheKey, { blob: audioBlob, blobUrl });
         return {
