@@ -417,9 +417,10 @@ app.post("/api/synthesize-burmese-tts", async (req, res) => {
       console.warn("Edge Neural TTS attempt failed or unavailable, falling back to secondary streaming engine:", edgeErr);
     }
 
-    // 2. Secondary Fallback Audio Stream Engine
-    const splitIntoTTSChunks = (str: string, maxLength = 140): string[] => {
-      const parts = str.split(/([၊။,.\n!]+)/);
+    // 2. Secondary Fallback Audio Stream Engine (Google Myanmar Speech Synthesis)
+    const splitIntoTTSChunks = (str: string, maxLength = 100): string[] => {
+      // Split by Burmese sentence/phrase terminators or spaces
+      const parts = str.split(/([၊။\n!?]+)/);
       const chunks: string[] = [];
       let current = "";
 
@@ -429,11 +430,19 @@ app.post("/api/synthesize-burmese-tts", async (req, res) => {
           current += p;
         } else {
           if (current.trim()) chunks.push(current.trim());
-          current = p;
+          if (p.length > maxLength) {
+            // Further slice ultra-long sub-phrases
+            for (let j = 0; j < p.length; j += maxLength) {
+              chunks.push(p.slice(j, j + maxLength).trim());
+            }
+            current = "";
+          } else {
+            current = p;
+          }
         }
       }
       if (current.trim()) chunks.push(current.trim());
-      return chunks.length > 0 ? chunks : [str.slice(0, maxLength)];
+      return chunks.filter((c) => c.length > 0);
     };
 
     const textChunks = splitIntoTTSChunks(cleanText);
@@ -441,22 +450,38 @@ app.post("/api/synthesize-burmese-tts", async (req, res) => {
 
     for (const chunk of textChunks) {
       if (!chunk.trim()) continue;
-      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`;
-      
-      try {
-        const ttsResp = await fetch(ttsUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://translate.google.com/",
-          },
-        });
+      const endpoints = [
+        `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
+        `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encodeURIComponent(chunk)}`,
+        `https://translate.google.com.sg/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
+        `https://translate.google.co.th/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
+      ];
 
-        if (ttsResp.ok) {
-          const arrayBuffer = await ttsResp.arrayBuffer();
-          audioBuffers.push(Buffer.from(arrayBuffer));
+      let chunkBuffer: Buffer | null = null;
+      for (const ttsUrl of endpoints) {
+        try {
+          const ttsResp = await fetch(ttsUrl, {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+              Referer: "https://translate.google.com/",
+            },
+          });
+
+          if (ttsResp.ok) {
+            const arrayBuffer = await ttsResp.arrayBuffer();
+            if (arrayBuffer.byteLength > 50) {
+              chunkBuffer = Buffer.from(arrayBuffer);
+              break;
+            }
+          }
+        } catch (err) {
+          // Try next endpoint
         }
-      } catch (err) {
-        console.warn("Failed to fetch chunk audio from secondary TTS:", err);
+      }
+
+      if (chunkBuffer) {
+        audioBuffers.push(chunkBuffer);
       }
     }
 

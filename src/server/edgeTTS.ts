@@ -17,11 +17,12 @@ export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): 
   const { text, voiceName, pitchHz = 0, rateMultiplier = 1.0 } = options;
 
   // Strict Voice Selection Guard
-  const targetVoice = voiceName && voiceName.includes('Thiha')
-    ? 'my-MM-ThihaNeural'
-    : voiceName && voiceName.includes('Nilar')
-    ? 'my-MM-NilarNeural'
-    : voiceName || 'my-MM-ThihaNeural';
+  const targetVoice =
+    voiceName && voiceName.includes('Thiha')
+      ? 'my-MM-ThihaNeural'
+      : voiceName && voiceName.includes('Nilar')
+      ? 'my-MM-NilarNeural'
+      : voiceName || 'my-MM-ThihaNeural';
 
   const tts = new MsEdgeTTS();
   await tts.setMetadata(targetVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
@@ -40,6 +41,7 @@ export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): 
     const audioChunks: Buffer[] = [];
     let isDone = false;
 
+    // Fast 6-second timeout to quickly fallback to Google Neural TTS if Edge websocket has latency
     const timeout = setTimeout(() => {
       if (!isDone) {
         isDone = true;
@@ -49,7 +51,7 @@ export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): 
           reject(new Error(`Edge TTS synthesis timed out for voice ${targetVoice}`));
         }
       }
-    }, 15000);
+    }, 6000);
 
     audioStream.on('data', (chunk: Buffer) => {
       audioChunks.push(chunk);
