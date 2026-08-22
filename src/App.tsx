@@ -275,6 +275,22 @@ function MainStudioApp() {
     setVideoPreviewUrl(objectUrl);
     setVideoFileName(file.name);
 
+    // If sample preset file is selected
+    const sampleMatch = SAMPLE_MOVIES.find(
+      (m) =>
+        file.name.toLowerCase().includes(m.id.toLowerCase()) ||
+        (file.name.includes('chronicles') && m.id.includes('chronicles')) ||
+        (file.name.includes('action') && m.id.includes('action')) ||
+        (file.name.includes('scifi') && m.id.includes('scifi'))
+    );
+
+    if (sampleMatch) {
+      setVideoDurationFormatted(sampleMatch.duration);
+      setVideoDurationSeconds(sampleMatch.durationSeconds);
+      setSegments(sampleMatch.segments);
+      return;
+    }
+
     const tempVideo = document.createElement('video');
     tempVideo.src = objectUrl;
     tempVideo.onloadedmetadata = () => {

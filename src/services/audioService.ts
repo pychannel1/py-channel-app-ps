@@ -127,15 +127,13 @@ export async function playMyanmarVoiceModel(
     console.warn('Backend TTS preview attempt failed, trying CDN mirrors...', backendErr);
   }
 
-  // 2. Reliable Audio Source URLs for Myanmar Speech
-  const audioUrls = [
+  // 2. Reliable Backend Audio Streaming Fallback
+  const backendStreamUrls = [
     `/api/stream-tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&voiceName=${voiceName}&rate=${speed}`,
     `/api/tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&voice=${voiceName}&rate=${speed}`,
-    `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${encodedText}`,
-    `https://dict.youdao.com/dictvoice?audio=${encodedText}&le=my`,
   ];
 
-  for (const url of audioUrls) {
+  for (const url of backendStreamUrls) {
     try {
       const audio = new Audio(url);
       audio.volume = 1.0;
@@ -151,21 +149,7 @@ export async function playMyanmarVoiceModel(
         return; // Successfully played, exit
       }
     } catch (err) {
-      console.warn('Audio stream attempt failed, trying next mirror...', err);
-    }
-  }
-
-  // 3. Fallback: Web Speech API synthesis
-  if ('speechSynthesis' in window) {
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(sampleText);
-      utterance.lang = 'my-MM';
-      utterance.rate = speed;
-      utterance.pitch = isMale ? 0.7 : 1.1; // Adjust pitch for Web Speech male/female distinction
-      window.speechSynthesis.speak(utterance);
-    } catch (speechErr) {
-      console.error('Speech synthesis fallback failed:', speechErr);
+      console.warn('Backend audio stream attempt failed, trying next mirror...', err);
     }
   }
 }

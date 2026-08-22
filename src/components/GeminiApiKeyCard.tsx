@@ -89,8 +89,8 @@ export const GeminiApiKeyCard: React.FC<GeminiApiKeyCardProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm sm:text-base font-bold text-slate-100 flex items-center gap-1.5">
                   <span>🔑 Google Gemini API Key</span>
-                  <span className="text-[11px] font-normal text-amber-400/90 font-burmese">
-                    (Required for Burmese Recap)
+                  <span className="text-[11px] font-normal text-amber-400 font-burmese">
+                    (မြန်မာစကားပြော ရီကပ်ဘာသာပြန် - ၁၀ မိနစ်စာအထိ)
                   </span>
                 </h3>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-300/90 border border-amber-500/30">
@@ -98,7 +98,7 @@ export const GeminiApiKeyCard: React.FC<GeminiApiKeyCardProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-300 font-burmese mt-1 leading-relaxed">
-                မူရင်း Movie Script ကို မြန်မာစကားပြော ရီကပ်ဇာတ်ညွှန်းအဖြစ် AI ဖြင့် အလိုအလျောက် ဘာသာပြန်ဆိုရန် လိုအပ်ပါသည်။
+                English စာသားများကို သဘာဝကျသော မြန်မာစကားပြော ရုပ်ရှင်ရီကပ် ဇာတ်ညွှန်းအဖြစ် Gemini AI ဖြင့် ၁၀ မိနစ်စာအထိ အပြည့်အစုံ ဘာသာပြန်ဆိုပေးပါသည်။
               </p>
             </div>
           </div>

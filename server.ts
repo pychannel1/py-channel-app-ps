@@ -116,7 +116,7 @@ app.post("/api/test-gemini-key", async (req, res) => {
 
     throw lastError || new Error("Gemini API မှ တုံ့ပြန်မှု မရရှိပါ။ API Key ကို စစ်ဆေးပေးပါ။");
   } catch (error: any) {
-    console.error("Gemini API key verification error:", error);
+    console.error("Gemini API verification error:", error);
     return res.status(400).json({
       success: false,
       error: error.message || "Invalid Gemini API Key. ချိတ်ဆက်မှု မအောင်မြင်ပါ။",
@@ -125,6 +125,7 @@ app.post("/api/test-gemini-key", async (req, res) => {
 });
 
 // Translation Endpoint using Gemini Flash models for Burmese Movie Recap Script
+// Fully supports up to 10 minutes of video segments with parallel chunk batching
 app.post("/api/translate-recap", async (req, res) => {
   try {
     const {
@@ -133,7 +134,7 @@ app.post("/api/translate-recap", async (req, res) => {
       targetTone = "exciting",
       apiKey,
       customSystemPrompt,
-      model = "gemini-3.6-flash",
+      model = "gemini-3.7-flash",
     } = req.body;
 
     if (!segments || !Array.isArray(segments) || segments.length === 0) {
@@ -165,66 +166,89 @@ CRITICAL SPOKEN BURMESE & VOICE-OVER PROSODY GUIDELINES:
   ]
 }`;
 
-    const prompt = `Translate and adapt the following ${segments.length} transcript segments into Burmese Movie Recap script:
-${JSON.stringify(segments.map(s => ({ id: s.id, time: `${s.start} - ${s.end}`, text: s.sourceText })), null, 2)}`;
-
-    // Validate model name to ensure valid Gemini model
+    // Validate model name to ensure valid modern Gemini model
     const allowedModels = [
-      "gemini-3.6-flash",
       "gemini-3.7-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-flash",
       "gemini-3.1-pro-preview",
       "gemini-3.1-flash-lite",
-      "gemini-flash-latest"
+      "gemini-flash-latest",
     ];
-    const preferredModel = allowedModels.includes(model) ? model : "gemini-3.6-flash";
+    const preferredModel = allowedModels.includes(model) ? model : "gemini-3.7-flash";
     const modelsToTry = [preferredModel, ...allowedModels.filter(m => m !== preferredModel)];
 
-    let responseText = "";
-    let finalModelUsed = preferredModel;
-    let lastError: any = null;
+    // Helper function to translate a single batch of segments with fallback models
+    async function translateBatch(batchSegments: any[]) {
+      const prompt = `Translate and adapt the following ${batchSegments.length} English transcript segments into Burmese Movie Recap script:
+${JSON.stringify(batchSegments.map(s => ({ id: s.id, time: `${s.start} - ${s.end}`, text: s.sourceText })), null, 2)}`;
 
-    for (const modelCandidate of modelsToTry) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelCandidate,
-          contents: prompt,
-          config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: "application/json",
-            temperature: 0.7,
-          },
-        });
+      let batchResponseText = "";
+      let lastErr: any = null;
 
-        if (response && response.text) {
-          responseText = response.text;
-          finalModelUsed = modelCandidate;
-          break;
+      for (const candidate of modelsToTry) {
+        try {
+          const response = await ai.models.generateContent({
+            model: candidate,
+            contents: prompt,
+            config: {
+              systemInstruction: systemPrompt,
+              responseMimeType: "application/json",
+              temperature: 0.7,
+            },
+          });
+
+          if (response && response.text) {
+            batchResponseText = response.text;
+            break;
+          }
+        } catch (err) {
+          lastErr = err;
+          continue;
         }
-      } catch (err) {
-        lastError = err;
-        continue;
       }
+
+      if (!batchResponseText) {
+        throw lastErr || new Error("Gemini translation returned empty response for segment batch");
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(batchResponseText);
+      } catch {
+        const cleaned = batchResponseText.replace(/```json\n?|\n?```/g, "").trim();
+        parsed = JSON.parse(cleaned);
+      }
+
+      const list = parsed.translations || parsed;
+      if (Array.isArray(list)) {
+        return list;
+      }
+      return [];
     }
 
-    if (!responseText) {
-      throw lastError || new Error("Gemini translation returned empty response");
+    // Split segments into batches of 15 segments for fast parallel translation up to 10 minutes (50-60 segments)
+    const BATCH_SIZE = 15;
+    const segmentBatches: any[][] = [];
+    for (let i = 0; i < segments.length; i += BATCH_SIZE) {
+      segmentBatches.push(segments.slice(i, i + BATCH_SIZE));
     }
 
-    let parsed;
-    try {
-      parsed = JSON.parse(responseText);
-    } catch {
-      // Clean possible markdown codeblocks
-      const cleaned = responseText.replace(/```json\n?|\n?```/g, "").trim();
-      parsed = JSON.parse(cleaned);
+    // Run parallel translation
+    const batchResults = await Promise.all(
+      segmentBatches.map(batch => translateBatch(batch))
+    );
+
+    const mergedTranslations: any[] = [];
+    for (const batchRes of batchResults) {
+      if (Array.isArray(batchRes)) {
+        mergedTranslations.push(...batchRes);
+      }
     }
 
     res.json({
       success: true,
-      translations: parsed.translations || parsed,
-      modelUsed: finalModelUsed,
+      translations: mergedTranslations,
+      modelUsed: preferredModel,
+      totalSegments: segments.length,
     });
   } catch (error: any) {
     console.error("Gemini translation error:", error);
@@ -235,17 +259,220 @@ ${JSON.stringify(segments.map(s => ({ id: s.id, time: `${s.start} - ${s.end}`, t
 });
 
 // AssemblyAI Transcription proxy endpoint with audio upload and polling support
+// Enforces pure English speech-to-text extraction up to 10 minutes
 app.post("/api/transcribe-assembly", async (req, res) => {
   try {
-    const { apiKey, audioUrl, audioBase64, languageCode = "auto" } = req.body;
+    const { apiKey, audioUrl, audioBase64, languageCode = "en" } = req.body;
     const key = apiKey || process.env.ASSEMBLYAI_API_KEY;
 
     if (!key || key.startsWith("aai_demo_")) {
-      // If demo key or no key, return simulated high-retention segments
+      // 10-Minute Full English Sample Segments for Demo/Test Mode
+      const sample10MinSegments = [
+        {
+          id: 'aai-seg-1',
+          start: '00:00:02.000',
+          end: '00:00:18.500',
+          startMs: 2000,
+          endMs: 18500,
+          sourceText: 'In the year 2154, humanity discovered that time is not a straight line, but a shattered mirror scattered across parallel realities.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-2',
+          start: '00:00:19.000',
+          end: '00:00:38.200',
+          startMs: 19000,
+          endMs: 38200,
+          sourceText: 'Meet Captain Alex Mercer, the only surviving pilot of the Chronos Initiative who holds the quantum cipher to save Earth.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-3',
+          start: '00:00:39.000',
+          end: '00:01:05.400',
+          startMs: 39000,
+          endMs: 65400,
+          sourceText: 'Warning, anomaly detected in Sector 7. The timeline rift is expanding at an alarming exponential velocity.',
+          myanmarText: '',
+          speaker: 'AI System',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-4',
+          start: '00:01:06.000',
+          end: '00:01:32.000',
+          startMs: 66000,
+          endMs: 92000,
+          sourceText: 'We only have one shot at this. If the tachyon reactor collapses, three billion lives will be erased from history forever.',
+          myanmarText: '',
+          speaker: 'Alex Mercer',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-5',
+          start: '00:01:33.000',
+          end: '00:02:00.000',
+          startMs: 93000,
+          endMs: 120000,
+          sourceText: 'As Alex breached the dimensional threshold, shadow operatives from the Void Syndicate ambushed the vanguard station.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-6',
+          start: '00:02:01.000',
+          end: '00:02:30.000',
+          startMs: 121000,
+          endMs: 150000,
+          sourceText: 'Plasma bolts lit up the abandoned hyperlane as our protagonist executed a breathtaking anti-gravity maneuver.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-7',
+          start: '00:02:31.000',
+          end: '00:03:00.000',
+          startMs: 151000,
+          endMs: 180000,
+          sourceText: 'You cannot rewrite destiny, Captain. The collapse of humanity was written into the fabric of the universe.',
+          myanmarText: '',
+          speaker: 'Void Leader',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-8',
+          start: '00:03:01.000',
+          end: '00:03:35.000',
+          startMs: 181000,
+          endMs: 215000,
+          sourceText: 'Alex smiled through the dust, activated the overload sequence, and dove headfirst into the temporal vortex.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-9',
+          start: '00:03:36.000',
+          end: '00:04:10.000',
+          startMs: 216000,
+          endMs: 250000,
+          sourceText: 'Traveling through twenty years of forgotten memories, he witnessed the origins of the catastrophic planetary disaster.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-10',
+          start: '00:04:11.000',
+          end: '00:04:45.000',
+          startMs: 251000,
+          endMs: 285000,
+          sourceText: 'It turned out the council president was the traitor who sabotaged the orbital shield all along.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-11',
+          start: '00:04:46.000',
+          end: '00:05:20.000',
+          startMs: 286000,
+          endMs: 320000,
+          sourceText: 'Armed with the ultimate evidence, Alex orchestrated an audacious cyber heist inside the high-security orbital citadel.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-12',
+          start: '00:05:21.000',
+          end: '00:05:55.000',
+          startMs: 321000,
+          endMs: 355000,
+          sourceText: 'Every security firewall dissolved under his quantum algorithms, triggering an emergency lockdown across the city.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-13',
+          start: '00:05:56.000',
+          end: '00:06:30.000',
+          startMs: 356000,
+          endMs: 390000,
+          sourceText: 'The countdown reached its final 30 seconds. One wrong keystroke would obliterate the entire continent.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-14',
+          start: '00:06:31.000',
+          end: '00:07:05.000',
+          startMs: 391000,
+          endMs: 425000,
+          sourceText: 'With sheer willpower and determination, Alex successfully rerouted the emergency power grid.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-15',
+          start: '00:07:06.000',
+          end: '00:07:45.000',
+          startMs: 426000,
+          endMs: 465000,
+          sourceText: 'A massive wave of pure blue light swept across the horizon, sealing the temporal fractures forever.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-16',
+          start: '00:07:46.000',
+          end: '00:08:25.000',
+          startMs: 466000,
+          endMs: 505000,
+          sourceText: 'Dawn broke over the rebuilt megalopolis, and the people looked up into the skies with renewed hope.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-17',
+          start: '00:08:26.000',
+          end: '00:09:10.000',
+          startMs: 506000,
+          endMs: 550000,
+          sourceText: 'Though no monuments bore his name, the legendary pilot watched quietly from the shadows, ready for the next mission.',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+        {
+          id: 'aai-seg-18',
+          start: '00:09:11.000',
+          end: '00:10:00.000',
+          startMs: 551000,
+          endMs: 600000,
+          sourceText: 'This concludes today magnificent 10-minute cinematic journey. Thank you for watching, and remember to like, share, and subscribe to pY Channel!',
+          myanmarText: '',
+          speaker: 'Narrator',
+          stretchRatio: 1.0,
+        },
+      ];
+
       return res.json({
         success: true,
         isDemo: true,
-        message: "Demo mode transcribed successfully",
+        segments: sample10MinSegments,
+        message: "10-minute English transcription demo loaded successfully",
       });
     }
 
@@ -276,7 +503,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
       return res.status(400).json({ error: "No audio URL or audio data provided for transcription." });
     }
 
-    // Submit transcription job
+    // Submit transcription job explicitly enforcing English language (language_code: "en")
     const transcriptResp = await fetch("https://api.assemblyai.com/v2/transcript", {
       method: "POST",
       headers: {
@@ -285,7 +512,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
       },
       body: JSON.stringify({
         audio_url: finalAudioUrl,
-        language_code: languageCode === "auto" ? undefined : languageCode,
+        language_code: "en", // Strictly transcribe in English
         speaker_labels: true,
         punctuate: true,
         format_text: true,
@@ -300,10 +527,10 @@ app.post("/api/transcribe-assembly", async (req, res) => {
     const transcriptData = await transcriptResp.json();
     const transcriptId = transcriptData.id;
 
-    // Poll for completion (up to 45 seconds)
+    // Poll for completion (up to 120 seconds to comfortably support full 10-minute audio)
     let completedData: any = null;
-    for (let attempt = 0; attempt < 30; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+    for (let attempt = 0; attempt < 60; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       const pollResp = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
         headers: { authorization: key },
       });
@@ -327,22 +554,22 @@ app.post("/api/transcribe-assembly", async (req, res) => {
       });
     }
 
-    // Convert AssemblyAI sentences / utterances to segments
+    // Convert AssemblyAI sentences / utterances to segments with clean 00:MM:SS.mmm timestamps
     const segments: any[] = [];
+    const formatTimeFromMs = (ms: number) => {
+      const s = ms / 1000;
+      const mins = Math.floor(s / 60).toString().padStart(2, '0');
+      const secs = Math.floor(s % 60).toString().padStart(2, '0');
+      const msec = Math.floor(ms % 1000).toString().padStart(3, '0');
+      return `00:${mins}:${secs}.${msec}`;
+    };
+
     if (completedData.utterances && completedData.utterances.length > 0) {
       completedData.utterances.forEach((u: any, idx: number) => {
-        const startSec = u.start / 1000;
-        const endSec = u.end / 1000;
-        const formatTime = (s: number) => {
-          const mins = Math.floor(s / 60).toString().padStart(2, '0');
-          const secs = Math.floor(s % 60).toString().padStart(2, '0');
-          const ms = Math.floor((s % 1) * 1000).toString().padStart(3, '0');
-          return `00:${mins}:${secs}.${ms}`;
-        };
         segments.push({
           id: `aai-seg-${idx + 1}`,
-          start: formatTime(startSec),
-          end: formatTime(endSec),
+          start: formatTimeFromMs(u.start),
+          end: formatTimeFromMs(u.end),
           startMs: u.start,
           endMs: u.end,
           sourceText: u.text,
@@ -352,23 +579,16 @@ app.post("/api/transcribe-assembly", async (req, res) => {
         });
       });
     } else if (completedData.words && completedData.words.length > 0) {
-      // Chunk words into ~7-10 words per sentence segment
-      const chunkSize = 8;
+      // Chunk words into natural ~10-14 words per sentence segment
+      const chunkSize = 12;
       for (let i = 0; i < completedData.words.length; i += chunkSize) {
         const chunk = completedData.words.slice(i, i + chunkSize);
         const startMs = chunk[0].start;
         const endMs = chunk[chunk.length - 1].end;
-        const formatTime = (ms: number) => {
-          const s = ms / 1000;
-          const mins = Math.floor(s / 60).toString().padStart(2, '0');
-          const secs = Math.floor(s % 60).toString().padStart(2, '0');
-          const msec = Math.floor(ms % 1000).toString().padStart(3, '0');
-          return `00:${mins}:${secs}.${msec}`;
-        };
         segments.push({
           id: `aai-seg-${Math.floor(i / chunkSize) + 1}`,
-          start: formatTime(startMs),
-          end: formatTime(endMs),
+          start: formatTimeFromMs(startMs),
+          end: formatTimeFromMs(endMs),
           startMs,
           endMs,
           sourceText: chunk.map((w: any) => w.text).join(' '),
@@ -381,10 +601,10 @@ app.post("/api/transcribe-assembly", async (req, res) => {
       segments.push({
         id: 'aai-seg-1',
         start: '00:00:01.000',
-        end: '00:00:10.000',
+        end: '00:10:00.000',
         startMs: 1000,
-        endMs: 10000,
-        sourceText: completedData.text || 'Dialogue transcribed from video audio.',
+        endMs: 600000,
+        sourceText: completedData.text || 'Dialogue transcribed from video audio in English.',
         myanmarText: '',
         speaker: 'Speaker A',
         stretchRatio: 1.0,
@@ -395,6 +615,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
       success: true,
       segments,
       text: completedData.text,
+      language: 'en',
     });
   } catch (error: any) {
     console.error("AssemblyAI error:", error);
@@ -406,7 +627,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
 const ttsMemoryCache = new Map<string, { buffer: Buffer; source: string; voiceName: string; timestamp: number }>();
 const MAX_TTS_CACHE_ENTRIES = 500;
 
-// Helper function to synthesize Burmese audio buffer (Edge TTS -> Google Myanmar TTS)
+// Helper function to synthesize Burmese audio buffer with High-Definition Microsoft Edge Neural TTS
 async function generateBurmeseAudioBuffer({
   text,
   isMale = false,
@@ -422,9 +643,10 @@ async function generateBurmeseAudioBuffer({
 }): Promise<{ buffer: Buffer; source: string; voiceName: string }> {
   const cleanText = text.trim();
   const selectedVoiceName = isMale ? "my-MM-ThihaNeural" : "my-MM-NilarNeural";
-  const effectiveBasePitch = typeof basePitchHz === "number" ? basePitchHz : (isMale ? -18 : 8);
-  const finalPitchHz = Math.round(effectiveBasePitch + (Number(pitchOffset) || 0));
-  const roundedSpeed = Math.round(Number(speedMultiplier || 1.0) * 100) / 100;
+  // Keep pitch subtle and natural (-6Hz to +6Hz) to prevent metallic/robotic tone
+  const effectiveBasePitch = typeof basePitchHz === "number" ? basePitchHz : (isMale ? -4 : 2);
+  const finalPitchHz = Math.max(-8, Math.min(8, Math.round(effectiveBasePitch + (Number(pitchOffset) || 0))));
+  const roundedSpeed = Math.max(0.75, Math.min(1.4, Math.round(Number(speedMultiplier || 1.0) * 100) / 100));
 
   const cacheKey = `${selectedVoiceName}_${finalPitchHz}_${roundedSpeed}_${cleanText}`;
   const cached = ttsMemoryCache.get(cacheKey);
@@ -432,11 +654,12 @@ async function generateBurmeseAudioBuffer({
     return { buffer: cached.buffer, source: `${cached.source}_cached`, voiceName: cached.voiceName };
   }
 
-  // 1. Try Microsoft Edge Neural TTS (Native WebSocket + StreamElements Engine)
+  // 1. Primary: Microsoft Edge Neural TTS Engine (96kbps MP3, human voice)
   try {
     const audioBuffer = await synthesizeWithEdgeTTS({
       text: cleanText,
       voiceName: selectedVoiceName,
+      gender: isMale ? 'male' : 'female',
       pitchHz: finalPitchHz,
       rateMultiplier: roundedSpeed,
     });
@@ -455,38 +678,33 @@ async function generateBurmeseAudioBuffer({
       return { buffer: audioBuffer, source: "edge_neural_tts", voiceName: selectedVoiceName };
     }
   } catch (edgeErr) {
-    console.warn("Primary Edge WebSocket TTS failed, switching to StreamElements Edge TTS engine:", edgeErr);
+    console.warn("Primary Edge Neural TTS failed, retrying with normalized parameters:", edgeErr);
   }
 
-  // 1b. Try StreamElements Edge TTS Engine for Microsoft Neural Voice
+  // 1b. Retry Edge Neural TTS with default neutral prosody (0Hz pitch, 1.0 rate)
   try {
-    const edgeUrl = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(
-      selectedVoiceName
-    )}&text=${encodeURIComponent(cleanText.substring(0, 500))}`;
-    const edgeRes = await fetch(edgeUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      },
+    const retryBuffer = await synthesizeWithEdgeTTS({
+      text: cleanText,
+      voiceName: selectedVoiceName,
+      gender: isMale ? 'male' : 'female',
+      pitchHz: 0,
+      rateMultiplier: 1.0,
     });
-    if (edgeRes.ok) {
-      const edgeData = await edgeRes.arrayBuffer();
-      if (edgeData.byteLength > 100) {
-        const buf = Buffer.from(edgeData);
-        ttsMemoryCache.set(cacheKey, {
-          buffer: buf,
-          source: "streamelements_edge",
-          voiceName: selectedVoiceName,
-          timestamp: Date.now(),
-        });
-        return { buffer: buf, source: "streamelements_edge", voiceName: selectedVoiceName };
-      }
+
+    if (retryBuffer && retryBuffer.length > 50) {
+      ttsMemoryCache.set(cacheKey, {
+        buffer: retryBuffer,
+        source: "edge_neural_tts_retry",
+        voiceName: selectedVoiceName,
+        timestamp: Date.now(),
+      });
+      return { buffer: retryBuffer, source: "edge_neural_tts_retry", voiceName: selectedVoiceName };
     }
-  } catch (seErr) {
-    console.warn("StreamElements Edge TTS engine failed, switching to Google TTS...", seErr);
+  } catch (retryErr) {
+    console.warn("Edge Neural TTS retry failed, falling back to Google Myanmar TTS proxy:", retryErr);
   }
 
-  // 2. Fallback to Fast Parallel Google Myanmar TTS Proxy
+  // 2. Fallback to Google Myanmar TTS Proxy
   const splitIntoTTSChunks = (str: string, maxLength = 80): string[] => {
     const parts = str.split(/([၊။\n!?]+)/);
     const chunks: string[] = [];
@@ -521,7 +739,6 @@ async function generateBurmeseAudioBuffer({
     const endpoints = [
       `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=my&client=tw-ob`,
       `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encodeURIComponent(chunk)}`,
-      `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(chunk)}&le=my`,
     ];
 
     for (const ttsUrl of endpoints) {

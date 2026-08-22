@@ -52,7 +52,10 @@ export const AssemblyAICard: React.FC<AssemblyAICardProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-slate-100 flex items-center gap-1.5">
-                🔑 AssemblyAI API Key (Required)
+                🔑 AssemblyAI API Key (English Speech-to-Text)
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-500/20">
+                  ၁၀ မိနစ်စာ အထိ
+                </span>
                 <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-white/10">
                   [Local Storage]
                 </span>
@@ -68,7 +71,7 @@ export const AssemblyAICard: React.FC<AssemblyAICardProps> = ({
               )}
             </div>
             <p className="text-xs text-slate-400 font-burmese mt-0.5">
-              ဗီဒီယိုမှ အသံဖိုင်ကို စာသားအဖြစ် အချိန်မှတ် (Timestamped dialogue) ထုတ်ယူရန် လိုအပ်ပါသည်။
+              အင်္ဂလိပ် အသံဖိုင်မှ အင်္ဂလိပ်စာသားများကို အချိန်မှတ် (English Timestamped Sentences) ဖြင့် ၁၀ မိနစ်စာအထိ တိကျစွာ ထုတ်ယူပေးပါသည်။
             </p>
           </div>
         </div>
