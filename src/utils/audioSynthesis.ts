@@ -92,7 +92,8 @@ export interface GeneratedAudioResult {
   durationSeconds?: number;
 }
 
-export { playMyanmarSpeech, fetchMyanmarTTSAudioBlob } from '../services/audioService';
+export { playMyanmarSpeech, fetchMyanmarTTSAudioBlob, playMyanmarVoiceModel } from '../services/audioService';
+import { playMyanmarVoiceModel } from '../services/audioService';
 
 /**
  * Generates authentic Burmese Neural Speech as a persistent, playable Blob & Blob URL.
@@ -479,7 +480,14 @@ export async function playVoicePreview(
         }
       }
     } catch (err) {
-      console.error('playVoicePreview synthesis error:', err);
+      console.warn('Backend TTS synthesis warning, using multi-mirror fallback player:', err);
+      if (!isStopped) {
+        try {
+          await playMyanmarVoiceModel(sampleText, 0, effectiveSpeed);
+        } catch (e) {
+          console.error('Final audio fallback failed:', e);
+        }
+      }
       if (!isStopped && onEndedCallback) onEndedCallback();
     }
   })();

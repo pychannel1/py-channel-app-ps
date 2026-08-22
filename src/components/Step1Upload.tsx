@@ -268,7 +268,7 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
             <div className="relative aspect-video w-full max-h-[420px] bg-black flex items-center justify-center">
               <video
                 ref={videoRef}
-                src={videoPreviewUrl}
+                src={videoPreviewUrl || undefined}
                 crossOrigin="anonymous"
                 playsInline
                 controls

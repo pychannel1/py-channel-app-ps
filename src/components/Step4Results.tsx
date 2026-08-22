@@ -378,7 +378,7 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
             <div className="relative aspect-video w-full flex items-center justify-center bg-slate-950 overflow-hidden group">
               <video
                 ref={videoRef}
-                src={videoPreviewUrl || ''}
+                src={videoPreviewUrl || undefined}
                 crossOrigin="anonymous"
                 style={{ transform: 'scaleX(-1)' }}
                 className="w-full h-full object-contain"
@@ -390,7 +390,7 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
               {/* Hidden Synchronized Dubbed Audio Element */}
               <audio
                 ref={audioRef}
-                src={generatedAudioBlobUrl || ''}
+                src={generatedAudioBlobUrl || undefined}
                 crossOrigin="anonymous"
                 playsInline
                 preload="auto"
