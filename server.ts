@@ -3,6 +3,7 @@ import path from "path";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { synthesizeWithEdgeTTS } from "./src/server/edgeTTS";
+import { BURMESE_VOICE_AVATARS } from "./src/data/burmeseVoices";
 
 dotenv.config();
 
@@ -1021,6 +1022,23 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`pY Channel Server running on http://localhost:${PORT}`);
+
+    // Pre-warm TTS memory cache in background for all 40 voice samples (0ms latency for mobile users)
+    setTimeout(async () => {
+      console.log("Pre-warming Burmese Neural TTS voice sample previews in background...");
+      for (const avatar of BURMESE_VOICE_AVATARS) {
+        try {
+          await generateBurmeseAudioBuffer({
+            text: avatar.samplePhraseBurmese,
+            isMale: avatar.gender === "male",
+            pitchOffset: 0,
+            speedMultiplier: avatar.baseRate || 1.0,
+            basePitchHz: avatar.basePitchHz,
+          });
+        } catch {}
+      }
+      console.log("Burmese Neural TTS voice samples pre-warmed successfully.");
+    }, 1000);
   });
 }
 

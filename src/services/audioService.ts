@@ -34,37 +34,33 @@ export async function playMyanmarVoiceModel(
   voiceOrGenderOrIndex?: string | number | any,
   speed: number = 1.0
 ): Promise<void> {
-  // Ensure browser audio context is unlocked
-  await unlockAudioContext();
-
   const sampleText = text.trim() || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်';
   const encodedText = encodeURIComponent(sampleText.substring(0, 300));
 
   // Determine gender strictly
   let isMale = false;
   let voiceId = 'voice-female-hs';
-  let basePitchHz = 8;
+  let basePitchHz = 2;
 
   if (typeof voiceOrGenderOrIndex === 'object' && voiceOrGenderOrIndex !== null) {
     isMale = voiceOrGenderOrIndex.gender === 'male';
     voiceId = voiceOrGenderOrIndex.id || (isMale ? 'voice-male-bb' : 'voice-female-hs');
-    basePitchHz = voiceOrGenderOrIndex.basePitchHz ?? (isMale ? -18 : 8);
+    basePitchHz = voiceOrGenderOrIndex.basePitchHz ?? (isMale ? -4 : 2);
   } else if (typeof voiceOrGenderOrIndex === 'string') {
     const lower = voiceOrGenderOrIndex.toLowerCase();
     if (lower === 'male' || lower === 'm' || lower.includes('thiha') || (lower.includes('male') && !lower.includes('female'))) {
       isMale = true;
       voiceId = 'voice-male-bb';
-      basePitchHz = -18;
+      basePitchHz = -4;
     } else {
       isMale = false;
       voiceId = 'voice-female-hs';
-      basePitchHz = 8;
+      basePitchHz = 2;
     }
   } else if (typeof voiceOrGenderOrIndex === 'number') {
-    // Indices 0-19 are male, 20-39 are female
     isMale = voiceOrGenderOrIndex < 20;
     voiceId = isMale ? 'voice-male-bb' : 'voice-female-hs';
-    basePitchHz = isMale ? -18 : 8;
+    basePitchHz = isMale ? -4 : 2;
   }
 
   const voiceName = isMale ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural';
@@ -83,15 +79,44 @@ export async function playMyanmarVoiceModel(
     } catch {}
   }
 
-  // 1. Primary: Try dedicated fast local backend preview endpoint
+  // 1. Primary: Direct high-definition streaming audio URL (synchronous playback for mobile browsers)
+  const streamUrl = `/api/stream-tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&voiceName=${encodeURIComponent(
+    voiceName
+  )}&voiceId=${encodeURIComponent(voiceId)}&speedMultiplier=${speed}&basePitchHz=${basePitchHz}`;
+
+  const audio = getSharedServiceAudio();
+  audio.src = streamUrl;
+  audio.volume = 1.0;
+  audio.muted = false;
+  audio.playbackRate = Math.min(Math.max(speed, 0.5), 2.0);
+
+  window.currentAudio = audio;
+  activeAudioElement = audio;
+
+  audio.onended = () => {
+    if (window.currentAudio === audio) window.currentAudio = null;
+    if (activeAudioElement === audio) activeAudioElement = null;
+  };
+
   try {
-    const previewRes = await fetch('/api/tts-preview', {
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      await playPromise;
+      return;
+    }
+  } catch (playErr) {
+    console.warn('Direct stream attempt exception:', playErr);
+  }
+
+  // 2. Secondary: Fallback to POST /api/tts
+  try {
+    const previewRes = await fetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        voice_id: voiceId,
+        voiceId,
         gender: isMale ? 'male' : 'female',
-        voiceName,
+        voice: voiceName,
         text: sampleText,
         rate: speed,
         basePitchHz,
@@ -102,55 +127,12 @@ export async function playMyanmarVoiceModel(
       const blob = await previewRes.blob();
       if (blob.size > 50) {
         const audioUrl = URL.createObjectURL(blob);
-        const audio = new Audio(audioUrl);
-        audio.volume = 1.0;
-        audio.muted = false;
-        audio.playbackRate = Math.min(Math.max(speed, 0.5), 2.0);
-
-        window.currentAudio = audio;
-        activeAudioElement = audio;
-
-        audio.onended = () => {
-          URL.revokeObjectURL(audioUrl);
-          if (window.currentAudio === audio) window.currentAudio = null;
-          if (activeAudioElement === audio) activeAudioElement = null;
-        };
-
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-          await playPromise;
-          return;
-        }
+        audio.src = audioUrl;
+        await audio.play();
       }
     }
-  } catch (backendErr) {
-    console.warn('Backend TTS preview attempt failed, trying CDN mirrors...', backendErr);
-  }
-
-  // 2. Reliable Backend Audio Streaming Fallback
-  const backendStreamUrls = [
-    `/api/stream-tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&voiceName=${voiceName}&rate=${speed}`,
-    `/api/tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&voice=${voiceName}&rate=${speed}`,
-  ];
-
-  for (const url of backendStreamUrls) {
-    try {
-      const audio = new Audio(url);
-      audio.volume = 1.0;
-      audio.muted = false;
-      audio.playbackRate = Math.min(Math.max(speed, 0.5), 2.0);
-
-      window.currentAudio = audio;
-      activeAudioElement = audio;
-
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        await playPromise;
-        return; // Successfully played, exit
-      }
-    } catch (err) {
-      console.warn('Backend audio stream attempt failed, trying next mirror...', err);
-    }
+  } catch (fallbackErr) {
+    console.warn('Fallback TTS preview attempt failed:', fallbackErr);
   }
 }
 

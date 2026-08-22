@@ -323,25 +323,6 @@ export async function playVoicePreview(
   arg2?: string | number,
   arg3?: number
 ): Promise<{ stop: () => void }> {
-  // 1. Immediately unlock AudioContext and HTML5 Audio during the user tap/click gesture
-  const ctx = await unlockAudioContext();
-
-  // Stop any previous audio
-  if (currentSourceNode) {
-    try {
-      currentSourceNode.stop();
-      currentSourceNode.disconnect();
-    } catch {}
-    currentSourceNode = null;
-  }
-  if (currentActiveAudio) {
-    try {
-      currentActiveAudio.pause();
-      currentActiveAudio.currentTime = 0;
-    } catch {}
-    currentActiveAudio = null;
-  }
-
   // Parse arguments to support both signatures
   let targetVoice: BurmeseVoiceAvatar;
   let pitchOffsetHz = 0;
@@ -366,19 +347,51 @@ export async function playVoicePreview(
   const sampleText = rawText.trim() || targetVoice.samplePhraseBurmese || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်';
   const normalizedText = normalizeMyanmarForTTS(sampleText);
   const effectiveSpeed = Math.max(0.5, Math.min(2.0, (targetVoice.baseRate || 1.0) * (speedMultiplier || 1.0)));
+  const effectiveBasePitch = typeof targetVoice.basePitchHz === 'number' ? targetVoice.basePitchHz : (targetVoice.gender === 'male' ? -4 : 2);
+  const finalPitch = Math.max(-8, Math.min(8, Math.round(effectiveBasePitch + (pitchOffsetHz || 0))));
 
-  const effectiveBasePitch = typeof targetVoice.basePitchHz === 'number' ? targetVoice.basePitchHz : (targetVoice.gender === 'male' ? -18 : 8);
-  const finalPitch = Math.round(effectiveBasePitch + (pitchOffsetHz || 0));
-  const cacheKey = `${targetVoice.id}_${finalPitch}_${effectiveSpeed}_${normalizedText}`;
+  // 1. Immediately stop any active audio or Web Audio source
+  if (currentSourceNode) {
+    try {
+      currentSourceNode.stop();
+      currentSourceNode.disconnect();
+    } catch {}
+    currentSourceNode = null;
+  }
+  if (currentActiveAudio) {
+    try {
+      currentActiveAudio.pause();
+      currentActiveAudio.currentTime = 0;
+    } catch {}
+    currentActiveAudio = null;
+  }
+
+  // 2. Prepare streaming audio URL pointing to high-definition backend
+  const streamUrl = `/api/stream-tts?text=${encodeURIComponent(normalizedText)}&gender=${encodeURIComponent(
+    targetVoice.gender
+  )}&voiceName=${encodeURIComponent(targetVoice.voiceName || (targetVoice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural'))}&voiceId=${encodeURIComponent(
+    targetVoice.id
+  )}&pitchOffset=${pitchOffsetHz}&speedMultiplier=${effectiveSpeed}&basePitchHz=${targetVoice.basePitchHz ?? 0}`;
 
   let isStopped = false;
-  let innerController: { stop: () => void } | null = null;
+
+  // Use the shared or fresh Audio element to ensure mobile gesture compliance
+  const audio = getSharedPreviewAudio();
+  currentActiveAudio = audio;
+  window.currentAudio = audio;
 
   const stopAll = () => {
+    if (isStopped) return;
     isStopped = true;
-    if (innerController) {
-      innerController.stop();
-      innerController = null;
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+    } catch {}
+    if (currentActiveAudio === audio) {
+      currentActiveAudio = null;
+    }
+    if (window.currentAudio === audio) {
+      window.currentAudio = null;
     }
     if (currentSourceNode) {
       try {
@@ -387,34 +400,25 @@ export async function playVoicePreview(
       } catch {}
       currentSourceNode = null;
     }
-    if (currentActiveAudio) {
-      try {
-        currentActiveAudio.pause();
-        currentActiveAudio.currentTime = 0;
-      } catch {}
-      currentActiveAudio = null;
+    if (onEndedCallback) {
+      onEndedCallback();
     }
-    if (onEndedCallback) onEndedCallback();
   };
 
-  // 1. Check in-memory decoded Web Audio buffer cache
-  const cachedBuffer = audioBufferCache.get(cacheKey);
-  if (cachedBuffer && ctx.state === 'running') {
-    playAudioBufferWithWebAudio(cachedBuffer, effectiveSpeed, () => {
-      if (!isStopped && onEndedCallback) onEndedCallback();
-    }).then((ctrl) => {
-      if (isStopped) {
-        ctrl.stop();
-      } else {
-        innerController = ctrl;
-      }
-    });
-    return { stop: stopAll };
-  }
+  audio.onended = () => {
+    if (!isStopped) {
+      isStopped = true;
+      if (currentActiveAudio === audio) currentActiveAudio = null;
+      if (window.currentAudio === audio) window.currentAudio = null;
+      if (onEndedCallback) onEndedCallback();
+    }
+  };
 
-  // 2. Fetch fresh MP3 buffer from backend server (with fast internal fallback)
-  (async () => {
+  audio.onerror = async () => {
+    if (isStopped) return;
+    console.warn('Direct stream audio error, trying fallback MP3 synthesis fetch...');
     try {
+      // Fallback: POST /api/tts
       const resp = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -428,79 +432,52 @@ export async function playVoicePreview(
           basePitchHz: targetVoice.basePitchHz,
         }),
       });
-
-      if (!resp.ok) {
-        throw new Error(`TTS server responded with status: ${resp.status}`);
-      }
-
-      const arrayBuffer = await resp.arrayBuffer();
-      if (isStopped) return;
-
-      if (arrayBuffer.byteLength > 50) {
-        const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
-        const blobUrl = URL.createObjectURL(blob);
-
-        const audio = new Audio(blobUrl);
-        audio.volume = 1.0;
-        audio.muted = false;
-        audio.playbackRate = effectiveSpeed;
-
-        currentActiveAudio = audio;
-        window.currentAudio = audio;
-
-        audio.onended = () => {
-          URL.revokeObjectURL(blobUrl);
-          if (currentActiveAudio === audio) currentActiveAudio = null;
-          if (window.currentAudio === audio) window.currentAudio = null;
-          if (!isStopped && onEndedCallback) onEndedCallback();
-        };
-
-        audio.onerror = () => {
-          URL.revokeObjectURL(blobUrl);
-          if (currentActiveAudio === audio) currentActiveAudio = null;
-          if (window.currentAudio === audio) window.currentAudio = null;
-          if (!isStopped) {
-            playMyanmarVoiceModel(sampleText, targetVoice, effectiveSpeed);
-          }
-          if (!isStopped && onEndedCallback) onEndedCallback();
-        };
-
-        // Attempt direct audio playback
-        try {
+      if (resp.ok && !isStopped) {
+        const arrayBuf = await resp.arrayBuffer();
+        if (arrayBuf.byteLength > 50 && !isStopped) {
+          const blob = new Blob([arrayBuf], { type: 'audio/mpeg' });
+          const blobUrl = URL.createObjectURL(blob);
+          audio.src = blobUrl;
+          audio.playbackRate = effectiveSpeed;
+          audio.volume = 1.0;
           await audio.play();
-        } catch (playErr) {
-          console.warn('Audio play notice, falling back to Web Audio / Mirror pipeline:', playErr);
-          if (ctx.state === 'running') {
-            try {
-              const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
-              audioBufferCache.set(cacheKey, decoded);
-              if (!isStopped) {
-                const ctrl = await playAudioBufferWithWebAudio(decoded, effectiveSpeed, () => {
-                  if (!isStopped && onEndedCallback) onEndedCallback();
-                });
-                innerController = ctrl;
-                return;
-              }
-            } catch {}
-          }
-          if (!isStopped) {
-            await playMyanmarVoiceModel(sampleText, targetVoice, effectiveSpeed);
-          }
-        }
-        return;
-      }
-    } catch (err) {
-      console.warn('Backend TTS synthesis warning, using multi-mirror fallback player:', err);
-      if (!isStopped) {
-        try {
-          await playMyanmarVoiceModel(sampleText, targetVoice, effectiveSpeed);
-        } catch (e) {
-          console.error('Final audio fallback failed:', e);
+          return;
         }
       }
-      if (!isStopped && onEndedCallback) onEndedCallback();
+    } catch (e) {
+      console.warn('Fallback audio failed:', e);
     }
-  })();
+    if (!isStopped && onEndedCallback) onEndedCallback();
+  };
+
+  // 3. SYNCHRONOUSLY attach src and trigger play() within the user tap event
+  try {
+    audio.src = streamUrl;
+    audio.playbackRate = effectiveSpeed;
+    audio.volume = 1.0;
+    audio.muted = false;
+
+    // Trigger playback immediately in the user interaction event loop
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch((playErr) => {
+        if (!isStopped) {
+          console.warn('Audio play request notice:', playErr);
+          // Try unmuting / unlocking AudioContext as secondary route
+          unlockAudioContext().then(() => {
+            if (!isStopped) {
+              audio.play().catch(() => {});
+            }
+          });
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('Instant audio play exception:', err);
+  }
+
+  // Also unlock Web Audio in background without blocking synchronous return
+  unlockAudioContext().catch(() => {});
 
   return { stop: stopAll };
 }

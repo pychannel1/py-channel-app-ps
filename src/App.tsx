@@ -508,13 +508,10 @@ function MainStudioApp() {
   const selectedVoice =
     BURMESE_VOICE_AVATARS.find((v) => v.id === selectedVoiceId) || BURMESE_VOICE_AVATARS[0];
 
-  const handlePlayVoicePreview = async (
+  const handlePlayVoicePreview = (
     customText?: string,
     specificVoice?: BurmeseVoiceAvatar
   ) => {
-    // Robust Audio Unlock for Browser Autoplay Compliance
-    await unlockAudioContext();
-
     if (activeVoiceController) {
       activeVoiceController.stop();
       setActiveVoiceController(null);
@@ -525,7 +522,7 @@ function MainStudioApp() {
     const targetText =
       customText || (segments[0]?.myanmarText || targetVoice.samplePhraseBurmese);
 
-    const controller = await playVoicePreview({
+    playVoicePreview({
       voice: targetVoice,
       pitchOffsetHz: pitchOffset || adminConfig.globalPitchHz,
       speedMultiplier: speedMultiplier || adminConfig.globalSpeed,
@@ -534,9 +531,9 @@ function MainStudioApp() {
         setIsPlayingVoicePreview(false);
         setActiveVoiceController(null);
       },
+    }).then((controller) => {
+      setActiveVoiceController(controller);
     });
-
-    setActiveVoiceController(controller);
   };
 
   const handleStopVoicePreview = () => {
