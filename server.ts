@@ -471,7 +471,7 @@ app.get("/api/stream-tts", async (req, res) => {
     }
 
     const gender = req.query.gender as string;
-    const voiceName = (req.query.voiceName || req.query.voiceModel) as string;
+    const voiceName = (req.query.voiceName || req.query.voiceModel || req.query.voice) as string;
     const voiceId = req.query.voiceId as string;
     let isMale = false;
 
@@ -483,8 +483,8 @@ app.get("/api/stream-tts", async (req, res) => {
       isMale = voiceId.includes("voice-male");
     }
 
-    const pitchOffset = Number(req.query.pitchOffset) || 0;
-    const speedMultiplier = Number(req.query.speedMultiplier) || 1.0;
+    const pitchOffset = Number(req.query.pitchOffset || req.query.pitch) || 0;
+    const speedMultiplier = Number(req.query.speedMultiplier || req.query.rate || req.query.speed) || 1.0;
     const basePitchHz = req.query.basePitchHz ? Number(req.query.basePitchHz) : undefined;
 
     const result = await generateBurmeseAudioBuffer({
@@ -495,6 +495,7 @@ app.get("/api/stream-tts", async (req, res) => {
       basePitchHz,
     });
 
+    res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Content-Length", result.buffer.length);
     res.setHeader("Cache-Control", "public, max-age=86400");
@@ -506,7 +507,69 @@ app.get("/api/stream-tts", async (req, res) => {
   }
 });
 
-// 2. High-Fidelity Neural Burmese TTS Synthesis Endpoint (POST JSON)
+// 2. Dedicated Serverless TTS Endpoint (/api/tts - Supports POST & GET)
+app.all("/api/tts", async (req, res) => {
+  try {
+    const text = (req.method === "POST" ? req.body?.text : req.query.text) || "";
+    if (!text || typeof text !== "string" || text.trim().length === 0) {
+      return res.status(400).json({ error: "Text is required for TTS synthesis" });
+    }
+
+    const voice = (req.method === "POST" ? (req.body?.voice || req.body?.voiceName || req.body?.voiceModel) : (req.query.voice || req.query.voiceName)) as string;
+    const voiceGender = (req.method === "POST" ? (req.body?.voiceGender || req.body?.gender) : (req.query.voiceGender || req.query.gender)) as string;
+    const voiceId = (req.method === "POST" ? req.body?.voiceId : req.query.voiceId) as string;
+    const rate = Number(req.method === "POST" ? (req.body?.rate ?? req.body?.speed ?? req.body?.speedMultiplier) : (req.query.rate ?? req.query.speed ?? req.query.speedMultiplier)) || 1.0;
+    const pitchOffset = Number(req.method === "POST" ? (req.body?.pitchOffset ?? req.body?.pitch) : (req.query.pitchOffset ?? req.query.pitch)) || 0;
+    const basePitchHz = (req.method === "POST" ? req.body?.basePitchHz : req.query.basePitchHz) ? Number(req.method === "POST" ? req.body?.basePitchHz : req.query.basePitchHz) : undefined;
+    const format = (req.method === "POST" ? req.body?.format : req.query.format) || "";
+
+    let isMale = false;
+    if (voiceGender === "male" || voiceGender === "female") {
+      isMale = voiceGender === "male";
+    } else if (typeof voice === "string" && (voice.includes("Thiha") || voice.includes("Nilar"))) {
+      isMale = voice.includes("Thiha");
+    } else if (typeof voiceId === "string") {
+      isMale = voiceId.includes("voice-male");
+    }
+
+    const result = await generateBurmeseAudioBuffer({
+      text,
+      isMale,
+      pitchOffset,
+      speedMultiplier: rate,
+      basePitchHz,
+    });
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+
+    // If client requested JSON or format=json
+    const acceptsJson = req.headers.accept?.includes("application/json") && format !== "audio" && format !== "mp3";
+    if (format === "json" || (acceptsJson && format !== "binary")) {
+      const audioBase64 = result.buffer.toString("base64");
+      return res.json({
+        success: true,
+        source: result.source,
+        voice: isMale ? "my-MM-ThihaNeural" : "my-MM-NilarNeural",
+        voiceName: result.voiceName,
+        gender: isMale ? "male" : "female",
+        audioBase64: `data:audio/mpeg;base64,${audioBase64}`,
+        rate,
+      });
+    }
+
+    // Default: Clean audio/mpeg binary MP3 stream
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Content-Length", result.buffer.length);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Accept-Ranges", "bytes");
+    res.send(result.buffer);
+  } catch (error: any) {
+    console.error("TTS endpoint error (/api/tts):", error);
+    res.status(500).json({ error: error.message || "TTS generation failed" });
+  }
+});
+
+// 3. High-Fidelity Neural Burmese TTS Synthesis Endpoint (POST JSON)
 app.post("/api/synthesize-burmese-tts", async (req, res) => {
   try {
     const {

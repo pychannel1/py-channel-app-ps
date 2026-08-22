@@ -74,6 +74,8 @@ export interface GeneratedAudioResult {
   durationSeconds?: number;
 }
 
+export { playMyanmarSpeech, fetchMyanmarTTSAudioBlob } from '../services/audioService';
+
 /**
  * Generates authentic Burmese Neural Speech as a persistent, playable Blob & Blob URL.
  * Strictly outputted with MIME type 'audio/mpeg' (MP3) or browser-supported container.
@@ -90,8 +92,38 @@ export async function generateBurmeseAudioBlob({
   speedMultiplier?: number;
 }): Promise<GeneratedAudioResult> {
   const normalizedText = normalizeMyanmarForTTS(text);
+  const targetVoice = voice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural';
 
-  // 1. Try server POST endpoint
+  // 1. Primary: Server /api/tts endpoint (Zero CORS/403 errors, Edge-TTS Neural + Google Cloud fallback)
+  try {
+    const resp = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: normalizedText,
+        voice: targetVoice,
+        voiceGender: voice.gender,
+        rate: speedMultiplier,
+        pitchOffset: pitchOffsetHz,
+      }),
+    });
+
+    if (resp.ok) {
+      const audioBlob = await resp.blob();
+      if (audioBlob.size > 50) {
+        const blobUrl = URL.createObjectURL(audioBlob);
+        return {
+          blob: audioBlob,
+          blobUrl,
+          mimeType: 'audio/mpeg',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Primary /api/tts failed, trying secondary synthesize endpoint:', err);
+  }
+
+  // 2. Secondary: Server POST /api/synthesize-burmese-tts
   try {
     const resp = await fetch('/api/synthesize-burmese-tts', {
       method: 'POST',
@@ -136,7 +168,7 @@ export async function generateBurmeseAudioBlob({
     console.warn('Server TTS POST failed, trying server streaming fetch:', err);
   }
 
-  // 2. Fallback: Server Stream GET Endpoint
+  // 3. Fallback: Server Stream GET Endpoint
   try {
     const streamUrl = `/api/stream-tts?text=${encodeURIComponent(
       normalizedText
@@ -161,7 +193,7 @@ export async function generateBurmeseAudioBlob({
     console.warn('Server stream fetch error:', fallbackErr);
   }
 
-  // 3. Fallback: Multi-CDN Google Stream Fetch
+  // 4. Fallback: Multi-CDN Direct Stream Fetch
   try {
     const cleanSlice = normalizedText.slice(0, 180).trim();
     const encoded = encodeURIComponent(cleanSlice);
@@ -208,16 +240,20 @@ function getMultiCdnMyanmarAudioUrls(
   const voiceName = voice?.voiceName || voice?.voiceModel || '';
 
   return [
-    // 1. Primary Multi-CDN Audio Source for zero-fail playback (Google Translate TTS)
-    `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=my&q=${encoded}`,
-    // 2. Fallback Multi-CDN Stream (Youdao Myanmar Audio Source)
-    `https://dict.youdao.com/dictvoice?audio=${encoded}&le=my`,
-    // 3. Fallback Multi-CDN Stream (Google Translate GTX)
-    `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encoded}`,
-    // 4. Server-Side Direct Stream Endpoint with Edge Neural Voice Engine
+    // 1. Primary Reliable Serverless Edge-TTS Endpoint (Zero CORS)
+    `/api/tts?text=${encoded}&gender=${gender}&voiceId=${voiceId}&voiceName=${encodeURIComponent(
+      voiceName
+    )}&pitchOffset=${pitchOffsetHz}&rate=${speed}`,
+    // 2. Server-Side Direct Stream Endpoint with Edge Neural Voice Engine
     `/api/stream-tts?text=${encoded}&gender=${gender}&voiceId=${voiceId}&voiceName=${encodeURIComponent(
       voiceName
     )}&pitchOffset=${pitchOffsetHz}&speedMultiplier=${speed}`,
+    // 3. Primary Multi-CDN Audio Source (Google Translate TTS)
+    `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=my&q=${encoded}`,
+    // 4. Fallback Multi-CDN Stream (Youdao Myanmar Audio Source)
+    `https://dict.youdao.com/dictvoice?audio=${encoded}&le=my`,
+    // 5. Fallback Multi-CDN Stream (Google Translate GTX)
+    `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encoded}`,
   ];
 }
 
