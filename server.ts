@@ -711,6 +711,47 @@ app.post("/api/synthesize-burmese-tts", async (req, res) => {
   }
 });
 
+// 4. Dedicated Voice Preview Endpoint for Previewing 40 Voice Models (/api/tts-preview)
+app.all("/api/tts-preview", async (req, res) => {
+  try {
+    const rawVoiceId = (req.method === "POST" ? (req.body?.voice_id || req.body?.voiceId) : (req.query?.voice_id || req.query?.voiceId)) as string || "";
+    const rawText = (req.method === "POST" ? (req.body?.text || req.body?.sampleText) : (req.query?.text || req.query?.sampleText)) as string || "";
+    const text = rawText.trim() || "မင်္ဂလာပါ ဇာတ်လမ်းစတင်ပါပြီ";
+
+    const gender = (req.method === "POST" ? req.body?.gender : req.query?.gender) as string || "";
+    const rate = Number(req.method === "POST" ? (req.body?.rate ?? req.body?.speed) : (req.query?.rate ?? req.query?.speed)) || 1.0;
+    const pitchOffset = Number(req.method === "POST" ? req.body?.pitchOffset : req.query?.pitchOffset) || 0;
+
+    let isMale = false;
+    if (gender === "male" || gender === "female") {
+      isMale = gender === "male";
+    } else if (rawVoiceId) {
+      if (rawVoiceId.includes("male") || rawVoiceId.startsWith("m-") || rawVoiceId.includes("Thiha")) {
+        isMale = true;
+      } else if (rawVoiceId.includes("female") || rawVoiceId.startsWith("f-") || rawVoiceId.includes("Nilar")) {
+        isMale = false;
+      }
+    }
+
+    const result = await generateBurmeseAudioBuffer({
+      text,
+      isMale,
+      pitchOffset,
+      speedMultiplier: rate,
+    });
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Content-Length", result.buffer.length);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Accept-Ranges", "bytes");
+    res.send(result.buffer);
+  } catch (error: any) {
+    console.error("TTS Preview endpoint error (/api/tts-preview):", error);
+    res.status(500).json({ error: error.message || "TTS Preview failed" });
+  }
+});
+
 // Vite middleware setup
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
