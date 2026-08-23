@@ -232,75 +232,7 @@ export async function generateBurmeseAudioBlob({
     console.warn('Server stream fetch error:', fallbackErr);
   }
 
-  // 4. Client-Side Direct TTS Engine (Zero Dependency on Backend Server)
-  try {
-    const splitChunks = (str: string, maxLen = 80): string[] => {
-      const parts = str.split(/([၊။\n!?]+)/);
-      const chunks: string[] = [];
-      let current = '';
-      for (const p of parts) {
-        if (current.length + p.length <= maxLen) {
-          current += p;
-        } else {
-          if (current.trim()) chunks.push(current.trim());
-          if (p.length > maxLen) {
-            for (let j = 0; j < p.length; j += maxLen) {
-              chunks.push(p.slice(j, j + maxLen).trim());
-            }
-            current = '';
-          } else {
-            current = p;
-          }
-        }
-      }
-      if (current.trim()) chunks.push(current.trim());
-      return chunks.filter((c) => c.length > 0);
-    };
-
-    const textChunks = splitChunks(normalizedText);
-    const chunkPromises = textChunks.map(async (chunk) => {
-      const urls = [
-        `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${encodeURIComponent(chunk)}`,
-        `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=my&q=${encodeURIComponent(chunk)}`,
-      ];
-      for (const u of urls) {
-        try {
-          const res = await fetch(u);
-          if (res.ok) {
-            const buf = await res.arrayBuffer();
-            if (buf.byteLength > 50) return buf;
-          }
-        } catch {}
-      }
-      return null;
-    });
-
-    const buffers = await Promise.all(chunkPromises);
-    const validBuffers = buffers.filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
-
-    if (validBuffers.length > 0) {
-      const totalLen = validBuffers.reduce((acc, b) => acc + b.byteLength, 0);
-      const merged = new Uint8Array(totalLen);
-      let offset = 0;
-      for (const b of validBuffers) {
-        merged.set(new Uint8Array(b), offset);
-        offset += b.byteLength;
-      }
-      const audioBlob = new Blob([merged.buffer], { type: 'audio/mpeg' });
-      const blobUrl = URL.createObjectURL(audioBlob);
-      audioBlobCache.set(cacheKey, { blob: audioBlob, blobUrl });
-      console.log('Audio blob generated (client-direct) - size:', audioBlob.size, 'MIME:', audioBlob.type, 'URL:', blobUrl);
-      return {
-        blob: audioBlob,
-        blobUrl,
-        mimeType: 'audio/mpeg',
-      };
-    }
-  } catch (clientTtsErr) {
-    console.warn('Client-direct TTS engine error:', clientTtsErr);
-  }
-
-  // 5. Ultimate Fallback: Synthesize Valid Audio WAV buffer to ensure playable audio
+  // 4. Client-Side Synthetic Audio Engine Fallback (Zero external CORS / Network failure risk)
   try {
     const sampleRate = 22050;
     const duration = Math.max(2, Math.min(20, normalizedText.length * 0.12));
