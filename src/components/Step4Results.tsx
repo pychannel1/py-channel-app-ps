@@ -393,8 +393,20 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
                 src={videoPreviewUrl || undefined}
                 crossOrigin="anonymous"
                 style={{ transform: 'scaleX(-1)' }}
-                className="w-full h-full object-contain"
+                muted
+                autoPlay={false}
                 playsInline
+                controls
+                controlsList="nodownload nofullscreen noremoteplayback"
+                onVolumeChange={(e) => {
+                  // Force mute if user attempts unmuting via native shortcuts
+                  const target = e.currentTarget;
+                  if (!target.muted || target.volume > 0) {
+                    target.muted = true;
+                    target.volume = 0;
+                  }
+                }}
+                className="w-full h-full object-contain pointer-events-auto"
                 preload="auto"
                 onClick={togglePlay}
               />

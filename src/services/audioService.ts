@@ -341,4 +341,5 @@ export async function playMyanmarSpeech(
 }
 
 export { generateVoiceToneDataUrl, playModelPreview, generateSyntheticSpeechWavBlob } from '../utils/audioSynthesizer';
+export { playInstantVoicePreview } from '../utils/audioPlayer';
 

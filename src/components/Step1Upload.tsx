@@ -291,9 +291,20 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
                 ref={videoRef}
                 src={videoPreviewUrl || undefined}
                 crossOrigin="anonymous"
+                muted
+                autoPlay={false}
                 playsInline
                 controls
-                className="w-full h-full object-contain"
+                controlsList="nodownload nofullscreen noremoteplayback"
+                onVolumeChange={(e) => {
+                  // Force mute if user attempts unmuting via native shortcuts
+                  const target = e.currentTarget;
+                  if (!target.muted || target.volume > 0) {
+                    target.muted = true;
+                    target.volume = 0;
+                  }
+                }}
+                className="w-full h-full object-contain pointer-events-auto"
               />
             </div>
 

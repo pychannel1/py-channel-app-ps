@@ -261,8 +261,19 @@ export const UserStudioWorkflow: React.FC<UserStudioWorkflowProps> = ({
                 <div className="relative rounded-2xl overflow-hidden aspect-video bg-black shadow-2xl border border-white/10">
                   <video
                     src={videoPreviewUrl}
+                    muted
+                    autoPlay={false}
+                    playsInline
                     controls
-                    className="w-full h-full object-contain"
+                    controlsList="nodownload nofullscreen noremoteplayback"
+                    onVolumeChange={(e) => {
+                      const target = e.currentTarget;
+                      if (!target.muted || target.volume > 0) {
+                        target.muted = true;
+                        target.volume = 0;
+                      }
+                    }}
+                    className="w-full h-full object-contain pointer-events-auto"
                   />
                   <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-xs font-mono text-amber-300 flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5" />
@@ -632,8 +643,19 @@ export const UserStudioWorkflow: React.FC<UserStudioWorkflowProps> = ({
                     {videoPreviewUrl ? (
                       <video
                         src={videoPreviewUrl}
+                        muted
+                        autoPlay={false}
+                        playsInline
                         controls
-                        className="w-full h-full object-contain"
+                        controlsList="nodownload nofullscreen noremoteplayback"
+                        onVolumeChange={(e) => {
+                          const target = e.currentTarget;
+                          if (!target.muted || target.volume > 0) {
+                            target.muted = true;
+                            target.volume = 0;
+                          }
+                        }}
+                        className="w-full h-full object-contain pointer-events-auto"
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-slate-500">

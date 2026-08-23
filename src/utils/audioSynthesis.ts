@@ -623,6 +623,8 @@ export function generateSRT(segments: TranscriptSegment[]): string {
     .join('\n');
 }
 
+export { playInstantVoicePreview } from './audioPlayer';
+
 /**
  * Format "00:00:02.100" to "00:00:02,100"
  */

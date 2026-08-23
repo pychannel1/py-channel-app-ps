@@ -113,9 +113,11 @@ async function synthesizeSingleEdgeChunk(
         isDone = true;
         clearTimeout(timeout);
         cleanup();
+        // If audio chunks were already received before stream closed, resolve with the audio data
         if (audioChunks.length > 0) {
           resolve(Buffer.concat(audioChunks));
         } else {
+          // If error is "no turn.end received" but error happened before any data, report clean error
           reject(err);
         }
       }
