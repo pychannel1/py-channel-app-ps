@@ -570,11 +570,11 @@ function MainStudioApp() {
     setCurrentStep(4);
 
     try {
-      // Build full Myanmar script text from segments
+      // Build full Myanmar script text from segments with proper natural sentence separators
       const fullBurmeseText = segments
-        .map((s) => s.myanmarText || s.sourceText)
+        .map((s) => (s.myanmarText || s.sourceText).trim())
         .filter((t) => Boolean(t && t.trim()))
-        .join(' ... ');
+        .join(' ။\n');
 
       setRenderProgress(35);
       // Synthesize authentic neural Burmese voice audio blob

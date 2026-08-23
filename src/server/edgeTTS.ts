@@ -4,8 +4,44 @@ export interface EdgeTTSSynthesizeOptions {
   text: string;
   voiceName?: string; // 'my-MM-ThihaNeural' | 'my-MM-NilarNeural'
   gender?: 'male' | 'female' | string;
-  pitchHz?: number;  // Subtle natural pitch adjustment (-8Hz to +8Hz)
-  rateMultiplier?: number; // 0.85 to 1.30
+  pitchHz?: number;  // Subtle natural pitch adjustment (-6Hz to +6Hz)
+  rateMultiplier?: number; // 0.85 to 1.35
+}
+
+/**
+ * Splits raw Burmese text into safe, naturally paced sentence chunks
+ * for high-speed synthesis without WebSocket frame limits.
+ */
+function splitBurmeseTextIntoChunks(rawText: string, maxChunkLength = 180): string[] {
+  const clean = rawText.trim();
+  if (!clean) return [];
+
+  // Split on Burmese sentence terminators (။), commas (၊), newlines, and punctuation
+  const parts = clean.split(/([။၊\n\r!?.…]+)/);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (current.length + part.length <= maxChunkLength) {
+      current += part;
+    } else {
+      if (current.trim()) chunks.push(current.trim());
+      if (part.length > maxChunkLength) {
+        // Sub-split very long sentences
+        for (let j = 0; j < part.length; j += maxChunkLength) {
+          const sub = part.slice(j, j + maxChunkLength).trim();
+          if (sub) chunks.push(sub);
+        }
+        current = '';
+      } else {
+        current = part;
+      }
+    }
+  }
+
+  if (current.trim()) chunks.push(current.trim());
+  return chunks.filter((c) => c.length > 0);
 }
 
 /**
@@ -20,8 +56,8 @@ async function synthesizeSingleEdgeChunk(
   const tts = new MsEdgeTTS();
   await tts.setMetadata(targetVoice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
 
-  // Keep pitch within subtle natural bounds to strictly prevent robotic/metallic sounds
-  const safePitch = Math.max(-8, Math.min(8, Math.round(pitchHz || 0)));
+  // Keep pitch within subtle natural human bounds (-6Hz to +6Hz) to strictly prevent robotic/metallic sounds
+  const safePitch = Math.max(-6, Math.min(6, Math.round(pitchHz || 0)));
   const pitchStr = safePitch >= 0 ? `+${safePitch}Hz` : `${safePitch}Hz`;
 
   const safeRate = Math.max(0.75, Math.min(1.4, Number(rateMultiplier) || 1.0));
@@ -53,7 +89,7 @@ async function synthesizeSingleEdgeChunk(
           reject(new Error(`Edge TTS synthesis timed out for voice ${targetVoice}`));
         }
       }
-    }, 12000);
+    }, 10000);
 
     audioStream.on('data', (chunk: Buffer) => {
       audioChunks.push(chunk);
@@ -110,49 +146,41 @@ export async function synthesizeWithEdgeTTS(options: EdgeTTSSynthesizeOptions): 
     targetVoice = voiceName.toLowerCase().includes('female') ? 'my-MM-NilarNeural' : 'my-MM-ThihaNeural';
   }
 
-  // If text is short (< 350 chars), synthesize in a single pass
-  if (cleanText.length <= 350) {
+  // If text is short (< 200 chars), synthesize in a single pass
+  if (cleanText.length <= 200) {
     return await synthesizeSingleEdgeChunk(cleanText, targetVoice, pitchHz, rateMultiplier);
   }
 
   // For long scripts (10-minute recaps), split into natural Myanmar sentence chunks
-  const sentenceChunks: string[] = [];
-  const parts = cleanText.split(/([။\n]+)/);
-  let currentChunk = '';
-
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    if (currentChunk.length + part.length <= 300) {
-      currentChunk += part;
-    } else {
-      if (currentChunk.trim()) sentenceChunks.push(currentChunk.trim());
-      currentChunk = part;
-    }
-  }
-  if (currentChunk.trim()) sentenceChunks.push(currentChunk.trim());
-
+  const sentenceChunks = splitBurmeseTextIntoChunks(cleanText, 180);
   if (sentenceChunks.length === 0) sentenceChunks.push(cleanText);
 
-  // Synthesize chunks sequentially or in batches
-  const buffers: Buffer[] = [];
-  for (const chunk of sentenceChunks) {
-    if (!chunk.trim()) continue;
-    try {
-      const buf = await synthesizeSingleEdgeChunk(chunk, targetVoice, pitchHz, rateMultiplier);
-      if (buf && buf.length > 50) {
-        buffers.push(buf);
+  // Synthesize chunks with batching (up to 4 in parallel for zero latency)
+  const batchSize = 4;
+  const collectedBuffers: Buffer[] = [];
+
+  for (let i = 0; i < sentenceChunks.length; i += batchSize) {
+    const batch = sentenceChunks.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(
+      batch.map((chunk) => synthesizeSingleEdgeChunk(chunk, targetVoice, pitchHz, rateMultiplier))
+    );
+
+    for (let j = 0; j < batchResults.length; j++) {
+      const res = batchResults[j];
+      if (res.status === 'fulfilled' && res.value && res.value.length > 50) {
+        collectedBuffers.push(res.value);
+      } else {
+        console.warn(`Chunk synthesis fallback for "${batch[j].substring(0, 30)}..."`);
       }
-    } catch (chunkErr) {
-      console.warn(`Chunk synthesis notice for "${chunk.substring(0, 30)}...":`, chunkErr);
     }
   }
 
-  if (buffers.length > 0) {
-    return Buffer.concat(buffers);
+  if (collectedBuffers.length > 0) {
+    return Buffer.concat(collectedBuffers);
   }
 
-  // Fallback single attempt
-  return await synthesizeSingleEdgeChunk(cleanText.substring(0, 350), targetVoice, pitchHz, rateMultiplier);
+  // Fallback single attempt on first 200 chars
+  return await synthesizeSingleEdgeChunk(cleanText.substring(0, 200), targetVoice, pitchHz, rateMultiplier);
 }
 
 

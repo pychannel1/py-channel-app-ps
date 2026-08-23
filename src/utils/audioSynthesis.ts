@@ -112,8 +112,8 @@ export async function generateBurmeseAudioBlob({
 }): Promise<GeneratedAudioResult> {
   const normalizedText = normalizeMyanmarForTTS(text);
   const targetVoice = voice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural';
-  const effectiveBasePitch = typeof voice.basePitchHz === 'number' ? voice.basePitchHz : (voice.gender === 'male' ? -18 : 8);
-  const finalPitch = Math.round(effectiveBasePitch + (pitchOffsetHz || 0));
+  const effectiveBasePitch = typeof voice.basePitchHz === 'number' ? voice.basePitchHz : (voice.gender === 'male' ? -1 : 0);
+  const finalPitch = Math.max(-6, Math.min(6, Math.round(effectiveBasePitch + (pitchOffsetHz || 0))));
 
   const cacheKey = `${voice.id}_${finalPitch}_${speedMultiplier}_${normalizedText}`;
   const cached = audioBlobCache.get(cacheKey);
@@ -407,8 +407,8 @@ export async function playVoicePreview(
   const sampleText = rawText.trim() || targetVoice.samplePhraseBurmese || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်';
   const normalizedText = normalizeMyanmarForTTS(sampleText);
   const effectiveSpeed = Math.max(0.5, Math.min(2.0, (targetVoice.baseRate || 1.0) * (speedMultiplier || 1.0)));
-  const effectiveBasePitch = typeof targetVoice.basePitchHz === 'number' ? targetVoice.basePitchHz : (targetVoice.gender === 'male' ? -4 : 2);
-  const finalPitch = Math.max(-8, Math.min(8, Math.round(effectiveBasePitch + (pitchOffsetHz || 0))));
+  const effectiveBasePitch = typeof targetVoice.basePitchHz === 'number' ? targetVoice.basePitchHz : (targetVoice.gender === 'male' ? -1 : 0);
+  const finalPitch = Math.max(-6, Math.min(6, Math.round(effectiveBasePitch + (pitchOffsetHz || 0))));
 
   // 1. Immediately stop any active audio or Web Audio source
   if (currentSourceNode) {

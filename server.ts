@@ -644,9 +644,10 @@ async function generateBurmeseAudioBuffer({
 }): Promise<{ buffer: Buffer; source: string; voiceName: string }> {
   const cleanText = text.trim();
   const selectedVoiceName = isMale ? "my-MM-ThihaNeural" : "my-MM-NilarNeural";
-  // Keep pitch subtle and natural (-6Hz to +6Hz) to prevent metallic/robotic tone
-  const effectiveBasePitch = typeof basePitchHz === "number" ? basePitchHz : (isMale ? -4 : 2);
-  const finalPitchHz = Math.max(-8, Math.min(8, Math.round(effectiveBasePitch + (Number(pitchOffset) || 0))));
+  
+  // Natural subtle human pitch (-4Hz to +4Hz) for authentic Burmese speech
+  const effectiveBasePitch = typeof basePitchHz === "number" ? basePitchHz : (isMale ? -1 : 0);
+  const finalPitchHz = Math.max(-6, Math.min(6, Math.round(effectiveBasePitch + (Number(pitchOffset) || 0))));
   const roundedSpeed = Math.max(0.75, Math.min(1.4, Math.round(Number(speedMultiplier || 1.0) * 100) / 100));
 
   const cacheKey = `${selectedVoiceName}_${finalPitchHz}_${roundedSpeed}_${cleanText}`;
@@ -926,15 +927,15 @@ app.post("/api/synthesize-burmese-tts", async (req, res) => {
       isMale = voiceId.includes("voice-male");
     }
 
-    const effectiveBasePitch = typeof basePitchHz === "number" ? basePitchHz : (isMale ? -18 : 8);
-    const finalPitchHz = Math.round(effectiveBasePitch + (Number(pitchOffset) || 0));
+    const effectiveBase = typeof basePitchHz === 'number' ? basePitchHz : (isMale ? -1 : 0);
+    const finalPitchHz = Math.max(-6, Math.min(6, Math.round(effectiveBase + (Number(pitchOffset) || 0))));
 
     const result = await generateBurmeseAudioBuffer({
       text,
       isMale,
-      pitchOffset: finalPitchHz,
+      pitchOffset: Number(pitchOffset) || 0,
       speedMultiplier: Number(speedMultiplier) || 1.0,
-      basePitchHz,
+      basePitchHz: effectiveBase,
     });
 
     const audioBase64 = result.buffer.toString("base64");
