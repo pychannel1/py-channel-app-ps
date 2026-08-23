@@ -1,6 +1,6 @@
 import { BurmeseVoiceAvatar } from '../types';
 
-export const BURMESE_VOICE_AVATARS: BurmeseVoiceAvatar[] = [
+const RAW_BURMESE_VOICE_AVATARS: BurmeseVoiceAvatar[] = [
   // ==========================================
   // 20 MALE VOICES (အမျိုးသား AI အသံများ - ၂၀)
   // Strict Model Binding: voiceName: "my-MM-ThihaNeural", gender: "male"
@@ -653,3 +653,8 @@ export const BURMESE_VOICE_AVATARS: BurmeseVoiceAvatar[] = [
     samplePhraseBurmese: 'သစ်ရွက်ကြွေတဲ့ ဆောင်းဦးရာသီမှာ သူတို့ရဲ့ အချစ်ဇာတ်လမ်းလေးဟာ အစပြုခဲ့တာ ဖြစ်ပါတယ်။',
   },
 ];
+
+export const BURMESE_VOICE_AVATARS: BurmeseVoiceAvatar[] = RAW_BURMESE_VOICE_AVATARS.map((voice) => ({
+  ...voice,
+  audioUrl: `/api/voice-audio/${voice.id}`,
+}));

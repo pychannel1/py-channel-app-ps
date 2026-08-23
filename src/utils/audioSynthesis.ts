@@ -9,7 +9,7 @@ let currentActiveAudio: HTMLAudioElement | null = null;
 
 // In-Memory Decoded AudioBuffer & Blob Caches for 0ms Instant Playback & Zero Stuttering
 const audioBufferCache = new Map<string, AudioBuffer>();
-const audioBlobCache = new Map<string, { blob: Blob; blobUrl: string }>();
+const audioBlobCache = new Map<string, { blob: Blob; blobUrl: string; serverAudioUrl?: string }>();
 
 /**
  * Universal Shared Audio Element to guarantee gesture-unlocked playback on Mobile Chrome/Safari/WebView
@@ -88,12 +88,47 @@ export function getAudioContext(): AudioContext {
 export interface GeneratedAudioResult {
   blob: Blob;
   blobUrl: string;
+  serverAudioUrl?: string;
   mimeType: string;
   durationSeconds?: number;
 }
 
 export { playMyanmarSpeech, fetchMyanmarTTSAudioBlob, playMyanmarVoiceModel } from '../services/audioService';
 import { playMyanmarVoiceModel } from '../services/audioService';
+
+/**
+ * Persist an Audio Blob to the server-side persistent audio store.
+ * Returns a stable, shareable URL like '/api/audio-store/aud_...'
+ */
+async function uploadAudioBlobToServer(blob: Blob, voiceId?: string): Promise<string | null> {
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const base64 = window.btoa(binary);
+
+    const resp = await fetch('/api/audio-store', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        audioBase64: base64,
+        mimeType: blob.type || 'audio/mpeg',
+        voiceId,
+      }),
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      return data.audioUrl || null;
+    }
+  } catch (err) {
+    console.warn('Audio store persistence notice:', err);
+  }
+  return null;
+}
 
 /**
  * Generates authentic Burmese Neural Speech as a persistent, playable Blob & Blob URL.
@@ -121,45 +156,12 @@ export async function generateBurmeseAudioBlob({
     return {
       blob: cached.blob,
       blobUrl: cached.blobUrl,
+      serverAudioUrl: cached.serverAudioUrl,
       mimeType: 'audio/mpeg',
     };
   }
 
-  // 1. Primary: Server /api/tts endpoint (Zero CORS/403 errors, Edge-TTS Neural + Google Cloud fallback)
-  try {
-    const resp = await fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: normalizedText,
-        voice: targetVoice,
-        voiceGender: voice.gender,
-        voiceId: voice.id,
-        rate: speedMultiplier,
-        pitchOffset: pitchOffsetHz,
-        basePitchHz: voice.basePitchHz,
-      }),
-    });
-
-    if (resp.ok) {
-      const arrayBuffer = await resp.arrayBuffer();
-      if (arrayBuffer.byteLength > 50) {
-        // Enforce strict audio/mpeg MIME type for standard MP3 browser playback
-        const audioBlob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
-        const blobUrl = URL.createObjectURL(audioBlob);
-        audioBlobCache.set(cacheKey, { blob: audioBlob, blobUrl });
-        return {
-          blob: audioBlob,
-          blobUrl,
-          mimeType: 'audio/mpeg',
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('Primary /api/tts failed, trying secondary synthesize endpoint:', err);
-  }
-
-  // 2. Secondary: Server POST /api/synthesize-burmese-tts
+  // 1. Primary: Server POST /api/synthesize-burmese-tts (Returns MP3 Base64 + Persistent Audio Store URL)
   try {
     const resp = await fetch('/api/synthesize-burmese-tts', {
       method: 'POST',
@@ -192,26 +194,65 @@ export async function generateBurmeseAudioBlob({
         // Strict MP3 MIME type
         const audioBlob = new Blob([bytes.buffer], { type: 'audio/mpeg' });
         const blobUrl = URL.createObjectURL(audioBlob);
-        audioBlobCache.set(cacheKey, { blob: audioBlob, blobUrl });
+        const serverAudioUrl = data.audioUrl || `/api/voice-audio/${encodeURIComponent(voice.id)}?text=${encodeURIComponent(normalizedText)}`;
+
+        audioBlobCache.set(cacheKey, { blob: audioBlob, blobUrl, serverAudioUrl });
 
         return {
           blob: audioBlob,
           blobUrl,
+          serverAudioUrl,
           mimeType: 'audio/mpeg',
         };
       }
     }
   } catch (err) {
-    console.warn('Server TTS POST failed, trying server streaming fetch:', err);
+    console.warn('Primary synthesize endpoint failed, trying /api/tts endpoint:', err);
+  }
+
+  // 2. Secondary: Server POST /api/tts endpoint
+  try {
+    const resp = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: normalizedText,
+        voice: targetVoice,
+        voiceGender: voice.gender,
+        voiceId: voice.id,
+        rate: speedMultiplier,
+        pitchOffset: pitchOffsetHz,
+        basePitchHz: voice.basePitchHz,
+      }),
+    });
+
+    if (resp.ok) {
+      const arrayBuffer = await resp.arrayBuffer();
+      if (arrayBuffer.byteLength > 50) {
+        const audioBlob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+        const blobUrl = URL.createObjectURL(audioBlob);
+        
+        // Asynchronously register in persistent store
+        const serverAudioUrl = await uploadAudioBlobToServer(audioBlob, voice.id) || `/api/voice-audio/${encodeURIComponent(voice.id)}?text=${encodeURIComponent(normalizedText)}`;
+        audioBlobCache.set(cacheKey, { blob: audioBlob, blobUrl, serverAudioUrl });
+
+        return {
+          blob: audioBlob,
+          blobUrl,
+          serverAudioUrl,
+          mimeType: 'audio/mpeg',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('/api/tts fetch failed, trying stream endpoint:', err);
   }
 
   // 3. Fallback: Server Stream GET Endpoint
   try {
-    const streamUrl = `/api/stream-tts?text=${encodeURIComponent(
+    const streamUrl = `/api/voice-audio/${encodeURIComponent(voice.id)}?text=${encodeURIComponent(
       normalizedText
-    )}&gender=${encodeURIComponent(voice.gender)}&voiceId=${encodeURIComponent(
-      voice.id
-    )}&pitchOffset=${pitchOffsetHz}&speedMultiplier=${speedMultiplier}`;
+    )}&gender=${encodeURIComponent(voice.gender)}&pitchOffset=${pitchOffsetHz}&speedMultiplier=${speedMultiplier}`;
 
     const streamResp = await fetch(streamUrl);
     if (streamResp.ok) {
@@ -219,11 +260,11 @@ export async function generateBurmeseAudioBlob({
       if (arrayBuf.byteLength > 50) {
         const audioBlob = new Blob([arrayBuf], { type: 'audio/mpeg' });
         const blobUrl = URL.createObjectURL(audioBlob);
-        audioBlobCache.set(cacheKey, { blob: audioBlob, blobUrl });
-        console.log('Audio blob generated (stream) - size:', audioBlob.size, 'MIME:', audioBlob.type, 'URL:', blobUrl);
+        audioBlobCache.set(cacheKey, { blob: audioBlob, blobUrl, serverAudioUrl: streamUrl });
         return {
           blob: audioBlob,
           blobUrl,
+          serverAudioUrl: streamUrl,
           mimeType: 'audio/mpeg',
         };
       }
@@ -232,7 +273,7 @@ export async function generateBurmeseAudioBlob({
     console.warn('Server stream fetch error:', fallbackErr);
   }
 
-  // 4. Client-Side Synthetic Audio Engine Fallback (Zero external CORS / Network failure risk)
+  // 4. Client-Side Synthetic Audio Engine Fallback
   try {
     const sampleRate = 22050;
     const duration = Math.max(2, Math.min(20, normalizedText.length * 0.12));
@@ -240,7 +281,6 @@ export async function generateBurmeseAudioBlob({
     const wavBuffer = new ArrayBuffer(44 + numSamples * 2);
     const view = new DataView(wavBuffer);
 
-    // RIFF chunk descriptor
     const writeString = (offset: number, string: string) => {
       for (let i = 0; i < string.length; i++) {
         view.setUint8(offset + i, string.charCodeAt(i));
@@ -251,8 +291,8 @@ export async function generateBurmeseAudioBlob({
     writeString(8, 'WAVE');
     writeString(12, 'fmt ');
     view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true); // Linear PCM
-    view.setUint16(22, 1, true); // Mono
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
     view.setUint32(24, sampleRate, true);
     view.setUint32(28, sampleRate * 2, true);
     view.setUint16(32, 2, true);
@@ -275,7 +315,6 @@ export async function generateBurmeseAudioBlob({
 
     const audioBlob = new Blob([wavBuffer], { type: 'audio/wav' });
     const blobUrl = URL.createObjectURL(audioBlob);
-    console.log('Audio blob generated (synthetic-wav) - size:', audioBlob.size, 'MIME:', audioBlob.type, 'URL:', blobUrl);
     return {
       blob: audioBlob,
       blobUrl,
@@ -285,7 +324,7 @@ export async function generateBurmeseAudioBlob({
     console.error('Audio WAV generation failed:', wavErr);
   }
 
-  // Safe fallback (never completely empty)
+  // Safe fallback
   const emptyWav = new Uint8Array([
     0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20,
     0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x44, 0xac, 0x00, 0x00, 0x88, 0x58, 0x01, 0x00,
@@ -306,6 +345,9 @@ export interface PlayVoicePreviewOptions {
   speedMultiplier?: number;
   customText?: string;
   onEnded?: () => void;
+  onStart?: () => void;
+  onError?: (error: string) => void;
+  onStatusChange?: (status: 'loading' | 'playing' | 'idle' | 'error', error?: string | null) => void;
 }
 
 /**
@@ -375,7 +417,7 @@ async function playAudioBufferWithWebAudio(
 /**
  * Authentic Natural Myanmar Speech Synthesis Engine for previewing all 40 voice models on mobile/desktop
  * - Uses Web Audio API Decoded Buffer playback for 0ms lag, zero stutter, and zero browser blocking.
- * - Supports both object signature ({ voice, pitchOffsetHz, speedMultiplier, customText, onEnded })
+ * - Supports both object signature ({ voice, pitchOffsetHz, speedMultiplier, customText, onEnded, onError })
  *   and positional signature (text, voiceId, speed).
  */
 export async function playVoicePreview(
@@ -389,6 +431,9 @@ export async function playVoicePreview(
   let speedMultiplier = 1.0;
   let rawText = '';
   let onEndedCallback: (() => void) | undefined;
+  let onStartCallback: (() => void) | undefined;
+  let onErrorCallback: ((err: string) => void) | undefined;
+  let onStatusCallback: ((status: 'loading' | 'playing' | 'idle' | 'error', error?: string | null) => void) | undefined;
 
   if (typeof arg1 === 'string') {
     rawText = arg1;
@@ -402,6 +447,9 @@ export async function playVoicePreview(
     speedMultiplier = opts.speedMultiplier || 1.0;
     rawText = opts.customText || targetVoice.samplePhraseBurmese;
     onEndedCallback = opts.onEnded;
+    onStartCallback = opts.onStart;
+    onErrorCallback = opts.onError;
+    onStatusCallback = opts.onStatusChange;
   }
 
   const sampleText = rawText.trim() || targetVoice.samplePhraseBurmese || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်';
@@ -409,6 +457,8 @@ export async function playVoicePreview(
   const effectiveSpeed = Math.max(0.5, Math.min(2.0, (targetVoice.baseRate || 1.0) * (speedMultiplier || 1.0)));
   const effectiveBasePitch = typeof targetVoice.basePitchHz === 'number' ? targetVoice.basePitchHz : (targetVoice.gender === 'male' ? -1 : 0);
   const finalPitch = Math.max(-6, Math.min(6, Math.round(effectiveBasePitch + (pitchOffsetHz || 0))));
+
+  onStatusCallback?.('loading', null);
 
   // 1. Immediately stop any active audio or Web Audio source
   if (currentSourceNode) {
@@ -426,43 +476,95 @@ export async function playVoicePreview(
     currentActiveAudio = null;
   }
 
-  // 2. Prepare streaming audio URL pointing to high-definition backend
-  const streamUrl = `/api/stream-tts?text=${encodeURIComponent(normalizedText)}&gender=${encodeURIComponent(
-    targetVoice.gender
-  )}&voiceName=${encodeURIComponent(targetVoice.voiceName || (targetVoice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural'))}&voiceId=${encodeURIComponent(
-    targetVoice.id
-  )}&pitchOffset=${pitchOffsetHz}&speedMultiplier=${effectiveSpeed}&basePitchHz=${targetVoice.basePitchHz ?? 0}`;
+  // Pre-unlock AudioContext on user gesture
+  const ctx = await unlockAudioContext();
+
+  const cacheKey = `${targetVoice.id}_${finalPitch}_${effectiveSpeed}_${normalizedText}`;
+  const cachedBuffer = audioBufferCache.get(cacheKey);
 
   let isStopped = false;
-
-  // Use the shared or fresh Audio element to ensure mobile gesture compliance
-  const audio = getSharedPreviewAudio();
-  currentActiveAudio = audio;
-  window.currentAudio = audio;
+  let activeSubController: { stop: () => void } | null = null;
 
   const stopAll = () => {
     if (isStopped) return;
     isStopped = true;
-    try {
-      audio.pause();
-      audio.currentTime = 0;
-    } catch {}
-    if (currentActiveAudio === audio) {
+    if (activeSubController) {
+      try {
+        activeSubController.stop();
+      } catch {}
+      activeSubController = null;
+    }
+    if (currentActiveAudio) {
+      try {
+        currentActiveAudio.pause();
+        currentActiveAudio.currentTime = 0;
+      } catch {}
       currentActiveAudio = null;
     }
-    if (window.currentAudio === audio) {
+    if (window.currentAudio) {
       window.currentAudio = null;
     }
-    if (currentSourceNode) {
-      try {
-        currentSourceNode.stop();
-        currentSourceNode.disconnect();
-      } catch {}
-      currentSourceNode = null;
+    onStatusCallback?.('idle', null);
+    if (onEndedCallback) onEndedCallback();
+  };
+
+  // IF CACHED IN WEBAUDIO BUFFER -> Play 0ms instantly!
+  if (cachedBuffer) {
+    onStatusCallback?.('playing', null);
+    onStartCallback?.();
+    const ctrl = await playAudioBufferWithWebAudio(cachedBuffer, effectiveSpeed, () => {
+      onStatusCallback?.('idle', null);
+      if (onEndedCallback) onEndedCallback();
+    });
+    activeSubController = ctrl;
+    return { stop: stopAll };
+  }
+
+  // 2. Prepare streaming audio URL pointing to dedicated voice endpoint
+  const streamUrl = `/api/voice-audio/${encodeURIComponent(targetVoice.id)}?text=${encodeURIComponent(
+    normalizedText
+  )}&gender=${encodeURIComponent(targetVoice.gender)}&voiceName=${encodeURIComponent(
+    targetVoice.voiceName || (targetVoice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural')
+  )}&pitchOffset=${pitchOffsetHz}&speedMultiplier=${effectiveSpeed}&basePitchHz=${targetVoice.basePitchHz ?? 0}`;
+
+  // Try fetching binary arrayBuffer first for zero-stutter Web Audio decoding
+  try {
+    const fetchResp = await fetch(streamUrl);
+    if (fetchResp.ok) {
+      const arrayBuf = await fetchResp.arrayBuffer();
+      if (arrayBuf.byteLength > 50 && !isStopped) {
+        try {
+          const decoded = await ctx.decodeAudioData(arrayBuf.slice(0));
+          audioBufferCache.set(cacheKey, decoded);
+          if (!isStopped) {
+            onStatusCallback?.('playing', null);
+            onStartCallback?.();
+            const ctrl = await playAudioBufferWithWebAudio(decoded, effectiveSpeed, () => {
+              onStatusCallback?.('idle', null);
+              if (onEndedCallback) onEndedCallback();
+            });
+            activeSubController = ctrl;
+            return { stop: stopAll };
+          }
+        } catch (decodeErr) {
+          console.warn('Web Audio decode warning, falling back to HTML5 Audio element:', decodeErr);
+        }
+      }
     }
-    if (onEndedCallback) {
-      onEndedCallback();
-    }
+  } catch (netErr) {
+    console.warn('Direct fetch stream warning:', netErr);
+  }
+
+  if (isStopped) return { stop: stopAll };
+
+  // 3. Fallback to HTML5 Audio Element playback
+  const audio = getSharedPreviewAudio();
+  currentActiveAudio = audio;
+  window.currentAudio = audio;
+
+  audio.onplay = () => {
+    onStatusCallback?.('playing', null);
+    onStartCallback?.();
   };
 
   audio.onended = () => {
@@ -470,74 +572,42 @@ export async function playVoicePreview(
       isStopped = true;
       if (currentActiveAudio === audio) currentActiveAudio = null;
       if (window.currentAudio === audio) window.currentAudio = null;
+      onStatusCallback?.('idle', null);
       if (onEndedCallback) onEndedCallback();
     }
   };
 
-  audio.onerror = async () => {
+  audio.onerror = (e) => {
     if (isStopped) return;
-    console.warn('Direct stream audio error, trying fallback MP3 synthesis fetch...');
-    try {
-      // Fallback: POST /api/tts
-      const resp = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: normalizedText,
-          voice: targetVoice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural',
-          voiceGender: targetVoice.gender,
-          voiceId: targetVoice.id,
-          rate: effectiveSpeed,
-          pitchOffset: pitchOffsetHz,
-          basePitchHz: targetVoice.basePitchHz,
-        }),
-      });
-      if (resp.ok && !isStopped) {
-        const arrayBuf = await resp.arrayBuffer();
-        if (arrayBuf.byteLength > 50 && !isStopped) {
-          const blob = new Blob([arrayBuf], { type: 'audio/mpeg' });
-          const blobUrl = URL.createObjectURL(blob);
-          audio.src = blobUrl;
-          audio.playbackRate = effectiveSpeed;
-          audio.volume = 1.0;
-          await audio.play();
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('Fallback audio failed:', e);
-    }
-    if (!isStopped && onEndedCallback) onEndedCallback();
+    const errorMsg = 'Voice audio failed to load. Tap to retry.';
+    console.warn('Audio element error:', e, audio.error);
+    onStatusCallback?.('error', errorMsg);
+    onErrorCallback?.(errorMsg);
+    if (onEndedCallback) onEndedCallback();
   };
 
-  // 3. SYNCHRONOUSLY attach src and trigger play() within the user tap event
   try {
     audio.src = streamUrl;
     audio.playbackRate = effectiveSpeed;
     audio.volume = 1.0;
     audio.muted = false;
 
-    // Trigger playback immediately in the user interaction event loop
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise.catch((playErr) => {
         if (!isStopped) {
           console.warn('Audio play request notice:', playErr);
-          // Try unmuting / unlocking AudioContext as secondary route
-          unlockAudioContext().then(() => {
-            if (!isStopped) {
-              audio.play().catch(() => {});
-            }
-          });
+          const errorMsg = 'Autoplay restricted. Tap Play button to listen.';
+          onStatusCallback?.('error', errorMsg);
+          onErrorCallback?.(errorMsg);
         }
       });
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn('Instant audio play exception:', err);
+    onStatusCallback?.('error', err?.message || 'Audio error');
+    onErrorCallback?.(err?.message || 'Audio error');
   }
-
-  // Also unlock Web Audio in background without blocking synchronous return
-  unlockAudioContext().catch(() => {});
 
   return { stop: stopAll };
 }

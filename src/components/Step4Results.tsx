@@ -399,19 +399,27 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
                 onClick={togglePlay}
               />
 
-              {/* Hidden Synchronized Dubbed Audio Element */}
+              {/* Synchronized Dubbed Audio Element */}
               <audio
                 ref={audioRef}
-                src={generatedAudioBlobUrl || undefined}
+                src={generatedAudioBlobUrl || selectedVoice?.audioUrl || (selectedVoice?.id ? `/api/voice-audio/${selectedVoice.id}` : undefined)}
                 crossOrigin="anonymous"
                 playsInline
                 preload="auto"
                 onPlay={() => setAudioPreviewPlaying(true)}
                 onPause={() => setAudioPreviewPlaying(false)}
                 onEnded={() => setAudioPreviewPlaying(false)}
-                onError={(e) => {
-                  console.error('HTML5 Audio playback error event:', e);
-                  setPlaybackError('Audio playback failed. Tap Play again.');
+                onError={async (e) => {
+                  console.warn('Dubbed audio element load notice:', e);
+                  if (audioRef.current && selectedVoice?.id) {
+                    const fallbackEndpoint = selectedVoice.audioUrl || `/api/voice-audio/${selectedVoice.id}`;
+                    if (!audioRef.current.src.includes(fallbackEndpoint)) {
+                      audioRef.current.src = fallbackEndpoint;
+                      audioRef.current.load();
+                      return;
+                    }
+                  }
+                  setPlaybackError('Audio playback notice. Tap Play Dubbed Audio below to listen.');
                   setAudioPreviewPlaying(false);
                 }}
               />

@@ -25,6 +25,17 @@ export interface BurmeseVoiceAvatar {
   baseRate: number;  // e.g. 1.05
   avatarColor: string; // gradient color string
   samplePhraseBurmese: string;
+  audioUrl?: string; // Stable persistent audio preview URL
+}
+
+export interface VoiceAudioRecord {
+  voiceId: string;
+  voiceIndex: number;
+  audioUrl: string;
+  mimeType: string;
+  duration?: number;
+  status: 'idle' | 'loading' | 'ready' | 'playing' | 'error';
+  error?: string | null;
 }
 
 export interface SampleMovie {

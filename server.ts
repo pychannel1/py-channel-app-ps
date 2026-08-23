@@ -791,6 +791,69 @@ async function generateBurmeseAudioBuffer({
   throw new Error("Could not synthesize audio from any Burmese TTS engine");
 }
 
+// ==========================================
+// PERSISTENT AUDIO STORE & RANGE STREAMING
+// ==========================================
+interface StoredAudio {
+  id: string;
+  buffer: Buffer;
+  mimeType: string;
+  createdAt: number;
+  duration?: number;
+  voiceId?: string;
+}
+
+const persistentAudioStore = new Map<string, StoredAudio>();
+
+// Clean up stored audio items older than 24 hours (keep last 500 items max)
+function pruneAudioStore() {
+  const now = Date.now();
+  if (persistentAudioStore.size > 500) {
+    for (const [id, item] of persistentAudioStore.entries()) {
+      if (now - item.createdAt > 86400000) {
+        persistentAudioStore.delete(id);
+      }
+    }
+  }
+}
+
+/**
+ * Universal Range-aware Audio Sender for Mobile Safari, Android Chrome, and Desktop browsers.
+ */
+function sendAudioBufferWithRange(
+  req: express.Request,
+  res: express.Response,
+  buffer: Buffer,
+  mimeType = "audio/mpeg"
+) {
+  const totalLength = buffer.length;
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400");
+  res.setHeader("Content-Type", mimeType);
+
+  const range = req.headers.range;
+  if (range && typeof range === "string") {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
+
+    if (!isNaN(start) && start >= 0 && start < totalLength) {
+      const actualEnd = isNaN(end) ? totalLength - 1 : Math.min(end, totalLength - 1);
+      const chunkSize = actualEnd - start + 1;
+      const chunk = buffer.subarray(start, actualEnd + 1);
+
+      res.status(206);
+      res.setHeader("Content-Range", `bytes ${start}-${actualEnd}/${totalLength}`);
+      res.setHeader("Content-Length", chunkSize);
+      return res.send(chunk);
+    }
+  }
+
+  res.setHeader("Content-Length", totalLength);
+  return res.send(buffer);
+}
+
 // 1. Direct Audio Streaming GET Endpoint for Instant HTML5 Audio Playback & Voice Audition
 app.get("/api/stream-tts", async (req, res) => {
   try {
@@ -824,19 +887,94 @@ app.get("/api/stream-tts", async (req, res) => {
       basePitchHz,
     });
 
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Content-Length", result.buffer.length);
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.setHeader("Accept-Ranges", "bytes");
-    res.send(result.buffer);
+    return sendAudioBufferWithRange(req, res, result.buffer, "audio/mpeg");
   } catch (error: any) {
     console.error("Audio stream error:", error);
     res.status(500).send(error.message || "Failed to stream audio");
   }
 });
 
-// 2. Dedicated Serverless TTS Endpoint (/api/tts - Supports POST & GET)
+// 2. Dedicated Persistent Voice Audio Endpoint for all 40 Voice Models (/api/voice-audio/:voiceId)
+app.get("/api/voice-audio/:voiceId", async (req, res) => {
+  try {
+    const voiceId = req.params.voiceId;
+    const matchedVoice = BURMESE_VOICE_AVATARS.find((v) => v.id === voiceId) || BURMESE_VOICE_AVATARS.find((v) => v.code.toLowerCase() === voiceId.toLowerCase());
+
+    const isMale = matchedVoice ? matchedVoice.gender === "male" : voiceId.includes("male");
+    const sampleText = typeof req.query.text === "string" && req.query.text.trim()
+      ? req.query.text.trim()
+      : (matchedVoice?.samplePhraseBurmese || "မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်");
+
+    const basePitchHz = typeof req.query.basePitchHz === "string" ? Number(req.query.basePitchHz) : matchedVoice?.basePitchHz;
+    const pitchOffset = Number(req.query.pitchOffset || req.query.pitch) || 0;
+    const speedMultiplier = Number(req.query.speedMultiplier || req.query.speed || req.query.rate) || (matchedVoice?.baseRate || 1.0);
+
+    const result = await generateBurmeseAudioBuffer({
+      text: sampleText,
+      isMale,
+      pitchOffset,
+      speedMultiplier,
+      basePitchHz,
+    });
+
+    return sendAudioBufferWithRange(req, res, result.buffer, "audio/mpeg");
+  } catch (error: any) {
+    console.error("Voice audio endpoint error:", error);
+    res.status(500).send(error.message || "Failed to load voice audio");
+  }
+});
+
+// 3. Persistent Audio Store API (Upload & Store Dubbed Audio for cross-device/user playback)
+app.post("/api/audio-store", async (req, res) => {
+  try {
+    const { audioBase64, mimeType = "audio/mpeg", voiceId, duration } = req.body;
+    if (!audioBase64 || typeof audioBase64 !== "string") {
+      return res.status(400).json({ error: "audioBase64 is required" });
+    }
+
+    const cleanBase64 = audioBase64.includes(",") ? audioBase64.split(",")[1] : audioBase64;
+    const buffer = Buffer.from(cleanBase64, "base64");
+
+    if (buffer.length === 0) {
+      return res.status(400).json({ error: "Audio buffer is empty" });
+    }
+
+    const audioId = `aud_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    persistentAudioStore.set(audioId, {
+      id: audioId,
+      buffer,
+      mimeType,
+      createdAt: Date.now(),
+      duration: Number(duration) || undefined,
+      voiceId: voiceId || undefined,
+    });
+
+    pruneAudioStore();
+
+    return res.json({
+      success: true,
+      audioId,
+      audioUrl: `/api/audio-store/${audioId}`,
+      mimeType,
+      size: buffer.length,
+      duration: duration || undefined,
+    });
+  } catch (err: any) {
+    console.error("Save audio store error:", err);
+    res.status(500).json({ error: err.message || "Failed to store audio" });
+  }
+});
+
+// 4. Retrieve Persistent Audio from Audio Store (/api/audio-store/:id)
+app.get("/api/audio-store/:id", (req, res) => {
+  const item = persistentAudioStore.get(req.params.id);
+  if (!item) {
+    return res.status(404).send("Audio not found or expired");
+  }
+  return sendAudioBufferWithRange(req, res, item.buffer, item.mimeType);
+});
+
+// 5. Dedicated Serverless TTS Endpoint (/api/tts - Supports POST & GET)
 app.all("/api/tts", async (req, res) => {
   try {
     const text = (req.method === "POST" ? req.body?.text : req.query.text) || "";
@@ -886,19 +1024,15 @@ app.all("/api/tts", async (req, res) => {
       });
     }
 
-    // Default: Clean audio/mpeg binary MP3 stream
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Content-Length", result.buffer.length);
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.setHeader("Accept-Ranges", "bytes");
-    res.send(result.buffer);
+    // Default: Clean audio/mpeg binary MP3 stream with range support
+    return sendAudioBufferWithRange(req, res, result.buffer, "audio/mpeg");
   } catch (error: any) {
     console.error("TTS endpoint error (/api/tts):", error);
     res.status(500).json({ error: error.message || "TTS generation failed" });
   }
 });
 
-// 3. High-Fidelity Neural Burmese TTS Synthesis Endpoint (POST JSON)
+// 6. High-Fidelity Neural Burmese TTS Synthesis Endpoint (POST JSON)
 app.post("/api/synthesize-burmese-tts", async (req, res) => {
   try {
     const {
@@ -940,6 +1074,17 @@ app.post("/api/synthesize-burmese-tts", async (req, res) => {
 
     const audioBase64 = result.buffer.toString("base64");
 
+    // Automatically register in persistent audio store for cross-device/user persistence
+    const audioId = `aud_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    persistentAudioStore.set(audioId, {
+      id: audioId,
+      buffer: result.buffer,
+      mimeType: "audio/mpeg",
+      createdAt: Date.now(),
+      voiceId,
+    });
+    pruneAudioStore();
+
     return res.json({
       success: true,
       source: result.source,
@@ -950,6 +1095,7 @@ app.post("/api/synthesize-burmese-tts", async (req, res) => {
       finalPitchHz,
       speedMultiplier,
       mimeType: "audio/mpeg",
+      audioUrl: `/api/audio-store/${audioId}`,
       audioBase64: `data:audio/mpeg;base64,${audioBase64}`,
     });
   } catch (error: any) {
@@ -958,7 +1104,7 @@ app.post("/api/synthesize-burmese-tts", async (req, res) => {
   }
 });
 
-// 4. Dedicated Voice Preview Endpoint for Previewing 40 Voice Models (/api/tts-preview)
+// 7. Dedicated Voice Preview Endpoint for Previewing 40 Voice Models (/api/tts-preview)
 app.all("/api/tts-preview", async (req, res) => {
   try {
     const rawVoiceId = (req.method === "POST" ? (req.body?.voice_id || req.body?.voiceId) : (req.query?.voice_id || req.query?.voiceId)) as string || "";
@@ -987,12 +1133,7 @@ app.all("/api/tts-preview", async (req, res) => {
       speedMultiplier: rate,
     });
 
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Content-Length", result.buffer.length);
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.setHeader("Accept-Ranges", "bytes");
-    res.send(result.buffer);
+    return sendAudioBufferWithRange(req, res, result.buffer, "audio/mpeg");
   } catch (error: any) {
     console.error("TTS Preview endpoint error (/api/tts-preview):", error);
     res.status(500).json({ error: error.message || "TTS Preview failed" });
