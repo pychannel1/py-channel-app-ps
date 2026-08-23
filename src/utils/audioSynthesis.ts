@@ -1,6 +1,11 @@
 import { BurmeseVoiceAvatar, TranscriptSegment } from '../types';
 import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
 import { normalizeMyanmarForTTS } from './myanmarTextNormalizer';
+import {
+  generateVoiceToneDataUrl,
+  playModelPreview,
+  generateSyntheticSpeechWavBlob,
+} from './audioSynthesizer';
 
 let audioCtx: AudioContext | null = null;
 let currentSourceNode: AudioBufferSourceNode | null = null;
@@ -273,47 +278,14 @@ export async function generateBurmeseAudioBlob({
     console.warn('Server stream fetch error:', fallbackErr);
   }
 
-  // 4. Client-Side Synthetic Audio Engine Fallback
+  // 4. Guaranteed Client-Side Synthetic Audio Engine Fallback (Zero Network Dependency)
   try {
-    const sampleRate = 22050;
-    const duration = Math.max(2, Math.min(20, normalizedText.length * 0.12));
-    const numSamples = Math.floor(sampleRate * duration);
-    const wavBuffer = new ArrayBuffer(44 + numSamples * 2);
-    const view = new DataView(wavBuffer);
-
-    const writeString = (offset: number, string: string) => {
-      for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i));
-      }
-    };
-    writeString(0, 'RIFF');
-    view.setUint32(4, 36 + numSamples * 2, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeString(36, 'data');
-    view.setUint32(40, numSamples * 2, true);
-
-    const isMale = voice.gender === 'male';
-    const fundamentalFreq = isMale ? 130 : 220;
-
-    let offset = 44;
-    for (let i = 0; i < numSamples; i++) {
-      const t = i / sampleRate;
-      const cadence = Math.sin(2 * Math.PI * 3.5 * t);
-      const envelope = Math.max(0, cadence);
-      const sampleVal = Math.sin(2 * Math.PI * fundamentalFreq * t) * envelope * 0.3;
-      view.setInt16(offset, sampleVal < 0 ? sampleVal * 0x8000 : sampleVal * 0x7fff, true);
-      offset += 2;
-    }
-
-    const audioBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+    const audioBlob = generateSyntheticSpeechWavBlob(
+      normalizedText,
+      voice.gender,
+      speedMultiplier,
+      pitchOffsetHz
+    );
     const blobUrl = URL.createObjectURL(audioBlob);
     return {
       blob: audioBlob,
@@ -321,7 +293,7 @@ export async function generateBurmeseAudioBlob({
       mimeType: 'audio/wav',
     };
   } catch (wavErr) {
-    console.error('Audio WAV generation failed:', wavErr);
+    console.error('Embedded audio WAV generation failed:', wavErr);
   }
 
   // Safe fallback
@@ -630,6 +602,12 @@ export const playMyanmarAudio = (text: string, speed: number = 1.0): Promise<boo
     }).catch(() => resolve(true));
   });
 };
+
+export {
+  generateVoiceToneDataUrl,
+  playModelPreview,
+  generateSyntheticSpeechWavBlob,
+} from './audioSynthesizer';
 
 /**
  * Generate SRT subtitle string from segments

@@ -1,5 +1,6 @@
 import { normalizeMyanmarForTTS } from '../utils/myanmarTextNormalizer';
 import { unlockAudioContext } from '../utils/audioSynthesis';
+import { generateSyntheticSpeechWavBlob } from '../utils/audioSynthesizer';
 
 declare global {
   interface Window {
@@ -243,47 +244,9 @@ export async function fetchMyanmarTTSAudioBlob(
     console.error('All backend TTS fetch attempts failed:', err);
   }
 
-  // 4. Client-side audio generation fallback (Synthesized PCM WAV - Zero CORS/Network failures)
+  // 4. Guaranteed Client-Side Synthetic Audio Engine Fallback (Zero Network Dependency)
   try {
-    const sampleRate = 22050;
-    const duration = Math.max(2, Math.min(15, cleanText.length * 0.1));
-    const numSamples = Math.floor(sampleRate * duration);
-    const wavBuffer = new ArrayBuffer(44 + numSamples * 2);
-    const view = new DataView(wavBuffer);
-
-    const writeString = (offset: number, string: string) => {
-      for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i));
-      }
-    };
-    writeString(0, 'RIFF');
-    view.setUint32(4, 36 + numSamples * 2, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeString(36, 'data');
-    view.setUint32(40, numSamples * 2, true);
-
-    const isMale = voiceGender === 'male';
-    const fundamentalFreq = isMale ? 135 : 220;
-
-    let offset = 44;
-    for (let i = 0; i < numSamples; i++) {
-      const t = i / sampleRate;
-      const cadence = Math.sin(2 * Math.PI * 3.5 * t);
-      const envelope = Math.max(0, cadence);
-      const sampleVal = Math.sin(2 * Math.PI * fundamentalFreq * t) * envelope * 0.25;
-      view.setInt16(offset, sampleVal < 0 ? sampleVal * 0x8000 : sampleVal * 0x7fff, true);
-      offset += 2;
-    }
-
-    return new Blob([wavBuffer], { type: 'audio/wav' });
+    return generateSyntheticSpeechWavBlob(cleanText, voiceGender, speed, pitchOffset);
   } catch (wavErr) {
     console.error('Local WAV synthesis fallback failed:', wavErr);
   }
@@ -376,4 +339,6 @@ export async function playMyanmarSpeech(
 
   return { stop: stopAudio };
 }
+
+export { generateVoiceToneDataUrl, playModelPreview, generateSyntheticSpeechWavBlob } from '../utils/audioSynthesizer';
 
