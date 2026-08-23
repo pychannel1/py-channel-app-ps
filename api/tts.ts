@@ -183,17 +183,20 @@ export async function generateMultiEngineMyanmarTTS(
 }
 
 /**
- * Standard Web Request/Response Serverless Handler (api/tts.ts)
+ * Standard Web Request/Response and Vercel Serverless Function Handler (api/tts.ts)
  */
 export async function POST(req: Request): Promise<Response> {
   try {
     const body = await req.json().catch(() => ({}));
-    const { text, voiceGender = 'female', speed = 1.0, pitchOffset = 0, basePitchHz } = body;
-    const cleanText = (text || 'မင်္ဂလာပါ').trim().substring(0, 800);
+    const { text, voiceGender = 'female', speed = 1.0, pitchOffset = 0, basePitchHz, voice, voiceName, voiceId } = body;
+    const cleanText = (text || 'မင်္ဂလာပါ').trim().substring(0, 1000);
 
     const result = await generateMultiEngineMyanmarTTS({
       text: cleanText,
       voiceGender,
+      voice,
+      voiceName,
+      voiceId,
       speed,
       pitchOffset,
       basePitchHz,
@@ -218,5 +221,79 @@ export async function POST(req: Request): Promise<Response> {
         'Access-Control-Allow-Origin': '*',
       },
     });
+  }
+}
+
+export async function GET(req: Request): Promise<Response> {
+  try {
+    const url = new URL(req.url);
+    const text = url.searchParams.get('text') || 'မင်္ဂလာပါ';
+    const voiceGender = url.searchParams.get('gender') || url.searchParams.get('voiceGender') || 'female';
+    const speed = Number(url.searchParams.get('rate') || url.searchParams.get('speed')) || 1.0;
+    const pitchOffset = Number(url.searchParams.get('pitch') || url.searchParams.get('pitchOffset')) || 0;
+
+    const result = await generateMultiEngineMyanmarTTS({
+      text,
+      voiceGender,
+      speed,
+      pitchOffset,
+    });
+
+    return new Response(result.audioBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'audio/mpeg',
+        'Content-Length': result.audioBuffer.length.toString(),
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=86400',
+      },
+    });
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message || 'TTS stream error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
+  }
+}
+
+// Standard Vercel Serverless Function export (Node runtime)
+export default async function handler(req: any, res: any) {
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    return res.status(200).end();
+  }
+
+  try {
+    const text = (req.method === 'POST' ? req.body?.text : req.query?.text) || 'မင်္ဂလာပါ';
+    const voiceGender = (req.method === 'POST' ? (req.body?.voiceGender || req.body?.gender) : (req.query?.gender || req.query?.voiceGender)) || 'female';
+    const voice = (req.method === 'POST' ? req.body?.voice : req.query?.voice) || '';
+    const voiceName = (req.method === 'POST' ? req.body?.voiceName : req.query?.voiceName) || '';
+    const voiceId = (req.method === 'POST' ? req.body?.voiceId : req.query?.voiceId) || '';
+    const speed = Number(req.method === 'POST' ? (req.body?.speed ?? req.body?.rate) : (req.query?.speed ?? req.query?.rate)) || 1.0;
+    const pitchOffset = Number(req.method === 'POST' ? req.body?.pitchOffset : req.query?.pitchOffset) || 0;
+    const basePitchHz = req.method === 'POST' ? req.body?.basePitchHz : (req.query?.basePitchHz ? Number(req.query.basePitchHz) : undefined);
+
+    const result = await generateMultiEngineMyanmarTTS({
+      text: String(text).trim(),
+      voiceGender: String(voiceGender),
+      voice: String(voice),
+      voiceName: String(voiceName),
+      voiceId: String(voiceId),
+      speed,
+      pitchOffset,
+      basePitchHz,
+    });
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Length', result.audioBuffer.length);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.status(200).send(result.audioBuffer);
+  } catch (error: any) {
+    console.error('Vercel serverless TTS error:', error);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.status(500).json({ error: error.message || 'TTS generation failed' });
   }
 }

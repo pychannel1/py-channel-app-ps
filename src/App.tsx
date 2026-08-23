@@ -585,6 +585,13 @@ function MainStudioApp() {
         speedMultiplier: speedMultiplier || adminConfig.globalSpeed,
       });
 
+      // Strict Audio Validation (Requirement F)
+      if (!audioResult.blob || audioResult.blob.size === 0 || !audioResult.blobUrl) {
+        throw new Error('AI Voice generation returned empty audio data. Retrying...');
+      }
+
+      console.log('Validated Audio blob size:', audioResult.blob.size, 'MIME type:', audioResult.blob.type, 'Audio URL:', audioResult.blobUrl);
+
       if (generatedAudioBlobUrl) {
         try {
           URL.revokeObjectURL(generatedAudioBlobUrl);

@@ -222,6 +222,18 @@ export async function fetchMyanmarTTSAudioBlob(
     console.error('All backend TTS fetch attempts failed:', err);
   }
 
+  // 4. Client-side direct TTS fallback
+  try {
+    const gUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${encodeURIComponent(
+      cleanText.substring(0, 100)
+    )}`;
+    const gRes = await fetch(gUrl);
+    if (gRes.ok) {
+      const blob = await gRes.blob();
+      if (blob.size > 50) return blob;
+    }
+  } catch {}
+
   return new Blob([], { type: 'audio/mpeg' });
 }
 

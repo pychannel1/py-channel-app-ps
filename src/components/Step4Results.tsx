@@ -215,6 +215,18 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
     setTimeout(() => setDownloadSuccess(null), 3500);
   };
 
+  const handleDownloadAudioMP3 = () => {
+    if (!generatedAudioBlobUrl) return;
+    const a = document.createElement('a');
+    a.href = generatedAudioBlobUrl;
+    a.download = `pY_Channel_${selectedVoice.code || 'Burmese_Dubbed'}_Audio.mp3`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setDownloadSuccess('Burmese Dubbed Voice Audio (.mp3) downloaded successfully!');
+    setTimeout(() => setDownloadSuccess(null), 3500);
+  };
+
   // Background Automatic Mirroring Render & Download Handler with embedded Audio Track
   const handleDownloadMirroredMP4 = async () => {
     if (!videoPreviewUrl) return;
@@ -620,6 +632,18 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
                   : '🎥 Download Final Mirrored Video (.mp4)'}
               </span>
             </button>
+
+            {/* Download Burmese Dubbed Audio (.mp3) Button */}
+            {generatedAudioBlobUrl && (
+              <button
+                id="download-dubbed-audio-mp3-btn"
+                onClick={handleDownloadAudioMP3}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-indigo-900/60 hover:bg-indigo-800/80 text-indigo-200 text-xs font-semibold border border-indigo-500/30 transition-all cursor-pointer shadow-md shadow-indigo-950/40"
+              >
+                <Music2 className="w-3.5 h-3.5 text-indigo-400" />
+                <span>🎵 Download Burmese Dubbed Audio (.mp3)</span>
+              </button>
+            )}
 
             {/* Download SRT Subtitles Button */}
             <button
