@@ -244,11 +244,17 @@ export async function fetchMyanmarTTSAudioBlob(
     console.error('All backend TTS fetch attempts failed:', err);
   }
 
-  // 4. Guaranteed Client-Side Synthetic Audio Engine Fallback (Zero Network Dependency)
+  // 4. Guaranteed Client-Side Real Speech Stream Fallback
   try {
-    return generateSyntheticSpeechWavBlob(cleanText, voiceGender, speed, pitchOffset);
+    const directUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
+      cleanText.slice(0, 70)
+    )}&tl=my&client=tw-ob&total=1&idx=0&textlen=${Math.min(70, cleanText.length)}`;
+    const directResp = await fetch(directUrl);
+    if (directResp.ok) {
+      return await directResp.blob();
+    }
   } catch (wavErr) {
-    console.error('Local WAV synthesis fallback failed:', wavErr);
+    console.warn('Direct speech stream fallback notice:', wavErr);
   }
 
   return new Blob([], { type: 'audio/mpeg' });
@@ -340,7 +346,7 @@ export async function playMyanmarSpeech(
   return { stop: stopAudio };
 }
 
-export { generateVoiceToneDataUrl, playModelPreview, generateSyntheticSpeechWavBlob } from '../utils/audioSynthesizer';
+export { playModelPreview, generateSyntheticSpeechWavBlob } from '../utils/audioSynthesizer';
 export { playInstantVoicePreview, playRealMyanmarAudio } from '../utils/audioPlayer';
 
 

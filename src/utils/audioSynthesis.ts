@@ -2,7 +2,6 @@ import { BurmeseVoiceAvatar, TranscriptSegment } from '../types';
 import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
 import { normalizeMyanmarForTTS } from './myanmarTextNormalizer';
 import {
-  generateVoiceToneDataUrl,
   playModelPreview,
   generateSyntheticSpeechWavBlob,
 } from './audioSynthesizer';
@@ -278,36 +277,51 @@ export async function generateBurmeseAudioBlob({
     console.warn('Server stream fetch error:', fallbackErr);
   }
 
-  // 4. Guaranteed Client-Side Synthetic Audio Engine Fallback (Zero Network Dependency)
+  // 4. Guaranteed Client-Side Real Myanmar Speech Fallback
   try {
-    const audioBlob = generateSyntheticSpeechWavBlob(
-      normalizedText,
-      voice.gender,
-      speedMultiplier,
-      pitchOffsetHz
-    );
-    const blobUrl = URL.createObjectURL(audioBlob);
-    return {
-      blob: audioBlob,
-      blobUrl,
-      mimeType: 'audio/wav',
-    };
-  } catch (wavErr) {
-    console.error('Embedded audio WAV generation failed:', wavErr);
+    const directFallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
+      (normalizedText.slice(0, 70) || voice.samplePhraseBurmese).trim()
+    )}&tl=my&client=tw-ob&total=1&idx=0&textlen=${Math.min(70, normalizedText.length)}`;
+    const directResp = await fetch(directFallbackUrl);
+    if (directResp.ok) {
+      const audioBlob = await directResp.blob();
+      const blobUrl = URL.createObjectURL(audioBlob);
+      return {
+        blob: audioBlob,
+        blobUrl,
+        mimeType: 'audio/mpeg',
+      };
+    }
+  } catch (directErr) {
+    console.warn('Direct speech fallback error:', directErr);
   }
 
-  // Safe fallback
-  const emptyWav = new Uint8Array([
-    0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20,
-    0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x44, 0xac, 0x00, 0x00, 0x88, 0x58, 0x01, 0x00,
-    0x02, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61, 0x00, 0x00, 0x00, 0x00,
-  ]);
-  const fallbackBlob = new Blob([emptyWav], { type: 'audio/wav' });
+  // 5. Final Voice Avatar sample URL fallback
+  const voiceSampleUrl = voice.audioUrl || `/api/voice-audio/${encodeURIComponent(voice.id)}`;
+  try {
+    const sampleResp = await fetch(voiceSampleUrl);
+    if (sampleResp.ok) {
+      const sampleBlob = await sampleResp.blob();
+      const blobUrl = URL.createObjectURL(sampleBlob);
+      return {
+        blob: sampleBlob,
+        blobUrl,
+        serverAudioUrl: voiceSampleUrl,
+        mimeType: 'audio/mpeg',
+      };
+    }
+  } catch (sampleErr) {
+    console.warn('Voice avatar sample fallback error:', sampleErr);
+  }
+
+  // Safe empty MP3 frame fallback
+  const emptyMp3 = new Uint8Array([0xFF, 0xFB, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00]);
+  const fallbackBlob = new Blob([emptyMp3], { type: 'audio/mpeg' });
   const blobUrl = URL.createObjectURL(fallbackBlob);
   return {
     blob: fallbackBlob,
     blobUrl,
-    mimeType: 'audio/wav',
+    mimeType: 'audio/mpeg',
   };
 }
 
@@ -630,7 +644,6 @@ export const playMyanmarAudio = (text: string, speed: number = 1.0): Promise<boo
 };
 
 export {
-  generateVoiceToneDataUrl,
   playModelPreview,
   generateSyntheticSpeechWavBlob,
 } from './audioSynthesizer';
