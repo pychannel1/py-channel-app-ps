@@ -529,10 +529,16 @@ export async function playVoicePreview(
 
   if (isStopped) return { stop: stopAll };
 
-  // 3. Fallback to HTML5 Audio Element playback
+  // 3. Robust HTML5 Audio Element playback with automatic multi-stream failover
   const audio = getSharedPreviewAudio();
   currentActiveAudio = audio;
   window.currentAudio = audio;
+
+  const directCdnUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(
+    sampleText.substring(0, 250)
+  )}&le=my`;
+
+  let hasTriedCdnFallback = false;
 
   audio.onplay = () => {
     onStatusCallback?.('playing', null);
@@ -549,10 +555,23 @@ export async function playVoicePreview(
     }
   };
 
-  audio.onerror = (e) => {
+  audio.onerror = () => {
     if (isStopped) return;
+    if (!hasTriedCdnFallback) {
+      hasTriedCdnFallback = true;
+      try {
+        audio.src = directCdnUrl;
+        audio.playbackRate = effectiveSpeed;
+        audio.play().catch(() => {
+          if (!isStopped) {
+            onStatusCallback?.('error', 'Audio load error');
+            if (onEndedCallback) onEndedCallback();
+          }
+        });
+        return;
+      } catch {}
+    }
     const errorMsg = 'Voice audio failed to load. Tap to retry.';
-    console.warn('Audio element error:', e, audio.error);
     onStatusCallback?.('error', errorMsg);
     onErrorCallback?.(errorMsg);
     if (onEndedCallback) onEndedCallback();
@@ -568,10 +587,17 @@ export async function playVoicePreview(
     if (playPromise !== undefined) {
       playPromise.catch((playErr) => {
         if (!isStopped) {
-          console.warn('Audio play request notice:', playErr);
-          const errorMsg = 'Autoplay restricted. Tap Play button to listen.';
-          onStatusCallback?.('error', errorMsg);
-          onErrorCallback?.(errorMsg);
+          // Autoplay retry with direct CDN
+          if (!hasTriedCdnFallback) {
+            hasTriedCdnFallback = true;
+            audio.src = directCdnUrl;
+            audio.play().catch((secErr) => {
+              console.warn('Audio play request notice:', secErr || playErr);
+              const errorMsg = 'Autoplay restricted. Tap Play button to listen.';
+              onStatusCallback?.('error', errorMsg);
+              onErrorCallback?.(errorMsg);
+            });
+          }
         }
       });
     }

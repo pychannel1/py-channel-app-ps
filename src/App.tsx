@@ -778,7 +778,6 @@ function MainStudioApp() {
             isSynthesizingVoice={isSynthesizingVoice}
             isPlayingPreview={isPlayingVoicePreview}
             onSelectVoice={(id) => {
-              handleStopVoicePreview();
               setSelectedVoiceId(id);
             }}
             onChangePitch={(p) => setPitchOffset(p)}

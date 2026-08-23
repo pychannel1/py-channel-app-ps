@@ -1117,9 +1117,9 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                           onChange={(e) => setSelectedPlaygroundVoice(e.target.value)}
                           className="text-xs px-3 py-1.5 rounded-xl bg-slate-950 border border-white/20 text-white font-burmese"
                         >
-                          {BURMESE_VOICE_AVATARS.slice(0, 10).map((v) => (
+                          {BURMESE_VOICE_AVATARS.map((v) => (
                             <option key={v.id} value={v.id}>
-                              {v.nameBurmese} ({v.gender})
+                              {v.nameBurmese} ({v.gender === 'male' ? 'ကျား' : 'မ'} - {v.code})
                             </option>
                           ))}
                         </select>
