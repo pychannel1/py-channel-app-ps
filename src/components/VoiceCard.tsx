@@ -1,5 +1,5 @@
 // src/components/VoiceCard.tsx
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { playInstantVoicePreview } from '../utils/audioPlayer';
 
 interface VoiceCardProps {
@@ -9,6 +9,7 @@ interface VoiceCardProps {
   index: number;
   isSelected: boolean;
   onSelect: (id: string) => void;
+  sampleText?: string;
 }
 
 export const VoiceCard: React.FC<VoiceCardProps> = ({
@@ -18,20 +19,38 @@ export const VoiceCard: React.FC<VoiceCardProps> = ({
   index,
   isSelected,
   onSelect,
+  sampleText,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
+  const controllerRef = useRef<{ stop: () => void } | null>(null);
 
-  const handlePreview = (e: React.MouseEvent) => {
+  useEffect(() => {
+    return () => {
+      if (controllerRef.current) {
+        controllerRef.current.stop();
+      }
+    };
+  }, []);
+
+  const handlePreview = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
-    setIsPlaying(true);
-    playInstantVoicePreview(index);
-    
-    // အသံ play ချိန် 0.35 စက္ကန့်ပြီးလျှင် animation ပုံမှန်ပြန်ထားခြင်း
-    setTimeout(() => {
+
+    if (isPlaying) {
+      if (controllerRef.current) {
+        controllerRef.current.stop();
+        controllerRef.current = null;
+      }
       setIsPlaying(false);
-    }, 350);
+      return;
+    }
+
+    setIsPlaying(true);
+    const controller = await playInstantVoicePreview(index, sampleText, () => {
+      setIsPlaying(false);
+      controllerRef.current = null;
+    });
+    controllerRef.current = controller;
   };
 
   return (
@@ -49,8 +68,8 @@ export const VoiceCard: React.FC<VoiceCardProps> = ({
             #{index + 1}
           </span>
           <div>
-            <h4 className="text-sm font-medium text-zinc-100">{name}</h4>
-            <p className="text-xs text-zinc-400 capitalize">{gender}</p>
+            <h4 className="text-sm font-medium text-zinc-100 font-burmese">{name}</h4>
+            <p className="text-xs text-zinc-400 capitalize">{gender === 'male' ? 'အမျိုးသား' : 'အမျိုးသမီး'}</p>
           </div>
         </div>
 
@@ -58,16 +77,16 @@ export const VoiceCard: React.FC<VoiceCardProps> = ({
         <button
           type="button"
           onClick={handlePreview}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium font-burmese flex items-center gap-1.5 transition-all cursor-pointer ${
             isPlaying
-              ? 'bg-purple-600 text-white scale-95 ring-2 ring-purple-400'
+              ? 'bg-purple-600 text-white scale-95 ring-2 ring-purple-400 animate-pulse'
               : 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700 active:scale-95'
           }`}
         >
-          <span>{isPlaying ? '' : ''}</span>
-          <span>{isPlaying ? 'ဖွင့်နေသည်' : 'စမ်းနားထောင်မည်'}</span>
+          <span>{isPlaying ? '■ ရပ်မည်' : '▶ စမ်းနားထောင်မည်'}</span>
         </button>
       </div>
     </div>
   );
 };
+

@@ -69,28 +69,17 @@ export function generateVoiceToneDataUrl(
   return 'data:audio/wav;base64,' + btoa(binary);
 }
 
+import { playInstantVoicePreview, playRealMyanmarAudio } from './audioPlayer';
+
 let activeAudio: HTMLAudioElement | null = null;
 
 /**
- * Plays instantaneous synthesized preview for the given voice model index (0-39).
- * Features unique harmonic frequencies and acoustic wave characteristics per model.
+ * Plays instantaneous authentic Myanmar speech preview for the given voice model index (0-39).
+ * Real spoken Burmese audio stream.
  */
 export function playModelPreview(index: number) {
   try {
-    if (activeAudio) {
-      activeAudio.pause();
-      activeAudio.currentTime = 0;
-    }
-
-    // 40 Unique frequencies and waveforms for 40 voice models
-    const freq = 140 + (index * 16);
-    const waveType = index % 3 === 0 ? 'sine' : index % 3 === 1 ? 'triangle' : 'square';
-    const wavDataUri = generateVoiceToneDataUrl(freq, 0.45, waveType);
-
-    activeAudio = new Audio(wavDataUri);
-    activeAudio.play().catch((err) => {
-      console.warn("Audio unlock fallback trigger:", err);
-    });
+    playInstantVoicePreview(index);
   } catch (error) {
     console.error("Critical audio playback error:", error);
   }
