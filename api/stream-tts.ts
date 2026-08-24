@@ -18,10 +18,8 @@ export interface MultiEngineTTSResult {
   contentType: string;
 }
 
-// In-memory serverless cache
 const serverlessTtsCache = new Map<string, { buffer: Buffer; source: any; voiceName: string }>();
 
-// Minimal valid silent MP3 frame buffer (104 bytes valid MPEG-1 Layer 3 audio frame)
 function createFallbackAudioFrame(): Buffer {
   const header = Buffer.from([
     0xff, 0xfb, 0x90, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -37,9 +35,6 @@ function createFallbackAudioFrame(): Buffer {
   return Buffer.concat([header, header, header, header]);
 }
 
-/**
- * Splits raw Burmese text into safe chunks for Edge TTS
- */
 function splitBurmeseTextIntoChunks(rawText: string, maxChunkLength = 180): string[] {
   const clean = rawText.trim();
   if (!clean) return [];
@@ -70,9 +65,6 @@ function splitBurmeseTextIntoChunks(rawText: string, maxChunkLength = 180): stri
   return chunks.filter((c) => c.length > 0);
 }
 
-/**
- * Synthesize a single Burmese text chunk with Microsoft Edge Neural Voice
- */
 async function synthesizeSingleEdgeChunk(
   chunkText: string,
   targetVoice: 'my-MM-ThihaNeural' | 'my-MM-NilarNeural',
@@ -148,9 +140,6 @@ async function synthesizeSingleEdgeChunk(
   });
 }
 
-/**
- * Synthesize with Edge TTS (Multi-chunk supported)
- */
 async function synthesizeWithEdgeTTSInternal(options: {
   text: string;
   voiceName?: string;
@@ -204,9 +193,6 @@ async function synthesizeWithEdgeTTSInternal(options: {
   return await synthesizeSingleEdgeChunk(cleanText.substring(0, 200), targetVoice, pitchHz, rateMultiplier);
 }
 
-/**
- * Multi-Engine Myanmar TTS Generator (Zero external file dependencies)
- */
 export async function generateMultiEngineMyanmarTTS(
   options: MultiEngineTTSOptions
 ): Promise<MultiEngineTTSResult> {
@@ -411,17 +397,12 @@ export async function GET(req: Request): Promise<Response> {
       },
     });
   } catch (err: any) {
-    const fallbackResult = await generateMultiEngineMyanmarTTS({ text: 'မင်္ဂလာပါ' }).catch(() => ({
-      audioBuffer: Buffer.alloc(128),
-      source: 'guaranteed_speech_guard' as const,
-      voiceName: 'my-MM-NilarNeural',
-      contentType: 'audio/mpeg',
-    }));
-    return new Response(fallbackResult.audioBuffer, {
+    const fallback = createFallbackAudioFrame();
+    return new Response(fallback, {
       status: 200,
       headers: {
         'Content-Type': 'audio/mpeg',
-        'Content-Length': fallbackResult.audioBuffer.length.toString(),
+        'Content-Length': fallback.length.toString(),
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'public, max-age=86400',
         'Accept-Ranges': 'bytes',
@@ -465,17 +446,12 @@ export async function POST(req: Request): Promise<Response> {
       },
     });
   } catch (err: any) {
-    const fallbackResult = await generateMultiEngineMyanmarTTS({ text: 'မင်္ဂလာပါ' }).catch(() => ({
-      audioBuffer: Buffer.alloc(128),
-      source: 'guaranteed_speech_guard' as const,
-      voiceName: 'my-MM-NilarNeural',
-      contentType: 'audio/mpeg',
-    }));
-    return new Response(fallbackResult.audioBuffer, {
+    const fallback = createFallbackAudioFrame();
+    return new Response(fallback, {
       status: 200,
       headers: {
         'Content-Type': 'audio/mpeg',
-        'Content-Length': fallbackResult.audioBuffer.length.toString(),
+        'Content-Length': fallback.length.toString(),
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'public, max-age=86400',
         'Accept-Ranges': 'bytes',
@@ -533,15 +509,10 @@ export default async function handler(req: any, res: any) {
     return res.status(200).send(result.audioBuffer);
   } catch (err: any) {
     console.error('stream-tts error (safe fallback applied):', err);
-    const fallbackResult = await generateMultiEngineMyanmarTTS({ text: 'မင်္ဂလာပါ' }).catch(() => ({
-      audioBuffer: Buffer.alloc(128),
-      source: 'guaranteed_speech_guard' as const,
-      voiceName: 'my-MM-NilarNeural',
-      contentType: 'audio/mpeg',
-    }));
+    const fallback = createFallbackAudioFrame();
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Content-Length', fallbackResult.audioBuffer.length);
-    return res.status(200).send(fallbackResult.audioBuffer);
+    res.setHeader('Content-Length', fallback.length);
+    return res.status(200).send(fallback);
   }
 }
