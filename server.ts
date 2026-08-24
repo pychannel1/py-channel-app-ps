@@ -909,10 +909,9 @@ function sendAudioBufferWithRange(
 // 1. Direct Audio Streaming GET Endpoint for Instant HTML5 Audio Playback & Voice Audition
 app.get("/api/stream-tts", async (req, res) => {
   try {
-    const text = typeof req.query.text === "string" ? req.query.text : "";
-    if (!text || text.trim().length === 0) {
-      return res.status(400).send("Text is required");
-    }
+    const text = (typeof req.query.text === "string" && req.query.text.trim()) 
+      ? req.query.text.trim() 
+      : "မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်";
 
     const gender = req.query.gender as string;
     const voiceName = (req.query.voiceName || req.query.voiceModel || req.query.voice) as string;
