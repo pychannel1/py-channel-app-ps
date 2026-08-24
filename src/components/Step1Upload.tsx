@@ -58,11 +58,16 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
   const [isEditingKey, setIsEditingKey] = useState(false);
   const [missingKeyAlert, setMissingKeyAlert] = useState(false);
 
+  const [isVerifyingKey, setIsVerifyingKey] = useState(false);
+  const [isKeyValid, setIsKeyValid] = useState(Boolean(assemblyApiKey && assemblyApiKey.trim().length > 5));
+
   const hasKey = Boolean(assemblyApiKey && assemblyApiKey.trim().length > 5);
 
   useEffect(() => {
     setLocalKey(assemblyApiKey);
-    if (assemblyApiKey && assemblyApiKey.trim().length > 5) {
+    const valid = Boolean(assemblyApiKey && assemblyApiKey.trim().length > 5);
+    setIsKeyValid(valid);
+    if (valid) {
       setMissingKeyAlert(false);
     }
   }, [assemblyApiKey]);
@@ -90,20 +95,45 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
     }
   };
 
-  const handleSaveKey = (e?: React.FormEvent) => {
+  const handleSaveKey = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const clean = localKey.trim();
     if (!clean) {
-      setKeyStatusMsg('ကျေးဇူးပြု၍ AssemblyAI API Key ထည့်သွင်းပေးပါ');
+      setIsKeyValid(false);
+      setKeyStatusMsg('API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
       return;
     }
-    if (onSaveAssemblyKey) {
-      onSaveAssemblyKey(clean);
+
+    setIsVerifyingKey(true);
+    setKeyStatusMsg('');
+
+    try {
+      const resp = await fetch('/api/test-assembly-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: clean }),
+      });
+      const data = await resp.json();
+
+      if (resp.ok && data.success) {
+        setIsKeyValid(true);
+        if (onSaveAssemblyKey) {
+          onSaveAssemblyKey(clean);
+        }
+        setKeyStatusMsg('✓ AssemblyAI Key ချိတ်ဆက်မှု အောင်မြင်ပါသည်');
+        setIsEditingKey(false);
+        setMissingKeyAlert(false);
+        setTimeout(() => setKeyStatusMsg(''), 3500);
+      } else {
+        setIsKeyValid(false);
+        setKeyStatusMsg(data.error || 'API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
+      }
+    } catch {
+      setIsKeyValid(false);
+      setKeyStatusMsg('API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
+    } finally {
+      setIsVerifyingKey(false);
     }
-    setKeyStatusMsg('✓ AssemblyAI Key သိမ်းဆည်းပြီးပါပြီ');
-    setIsEditingKey(false);
-    setMissingKeyAlert(false);
-    setTimeout(() => setKeyStatusMsg(''), 3500);
   };
 
   const handleExtractClick = () => {

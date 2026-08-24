@@ -77,7 +77,8 @@ export const Step2SourceText: React.FC<Step2SourceTextProps> = ({
     const cleanKey = localGeminiKey.trim();
 
     if (!cleanKey) {
-      setKeyStatusMsg('ကျေးဇူးပြု၍ Google Gemini API Key ထည့်သွင်းပေးပါ');
+      setIsKeyValid(false);
+      setKeyStatusMsg('API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
       return;
     }
 
@@ -100,46 +101,51 @@ export const Step2SourceText: React.FC<Step2SourceTextProps> = ({
         onSaveGeminiKey(cleanKey);
       } else {
         setIsKeyValid(false);
-        setKeyStatusMsg(data.error || 'Gemini API ချိတ်ဆက်မှု မအောင်မြင်ပါ။ Key ကို စစ်ဆေးပါ။');
+        setKeyStatusMsg(data.error || 'API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
       }
     } catch {
-      setIsKeyValid(true);
-      setMissingGeminiAlert(false);
-      setKeyStatusMsg('✓ Gemini API Key သိမ်းဆည်းပြီးပါပြီ');
-      onSaveGeminiKey(cleanKey);
+      setIsKeyValid(false);
+      setKeyStatusMsg('API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
     } finally {
       setIsVerifyingKey(false);
     }
   };
 
-  // Generate full prompt tailored for copy-paste into Gemini App with strict professional translation instructions
+  // Generate full prompt tailored for copy-paste into Gemini App with dramatic, cinematic, and professional movie-recap narration
   const generateGeminiAppPrompt = () => {
     const lines = segments
       .map((s, i) => `[Segment ${i + 1}] (${s.start} - ${s.end})\nSource: ${s.sourceText}`)
       .join('\n\n');
 
     return `SYSTEM INSTRUCTION:
-You are a professional translator and script recap expert for Myanmar. Translate accurately, maintain natural phrasing, and do NOT hallucinate or alter the core narrative.
+You are a master Myanmar movie-recap scriptwriter and cinematic narrator for "pY Channel".
+Your mission: Transform movie transcripts into dramatic, cinematic, and professional movie-recap style narration with natural pacing and high audience retention.
 
-CRITICAL TRANSLATION & RECAP DIRECTIVES:
-1. ACCURATE SENTENCE-BY-SENTENCE TRANSLATION:
-   - Translate sentence by sentence or segment by segment without skipping, hallucinating, or altering the original story narrative.
-   - Maintain absolute factual fidelity to the source movie plot, character actions, and dialogues.
+CRITICAL MOVIE-RECAP NARRATION DIRECTIVES:
+1. DRAMATIC, CINEMATIC & PROFESSIONAL RECAP STYLE:
+   - Deliver an immersive, tension-filled, cinematic movie recap experience.
+   - Build suspense, highlight dramatic stakes, emotional climaxes, and heroic action sequences.
+   - Hook viewers with dynamic recap phrasing: "ဒီတစ်ခါမှာတော့...", "အဲဒီအချိန်မှာပဲ...", "ရုတ်တရက်...", "မထင်မှတ်ထားဘဲ...", "ဇာတ်လမ်းရဲ့ အလှည့်အပြောင်းမှာတော့...", "အခြေအနေတွေက ပိုမိုတင်းမာလာပြီး...".
 
-2. PURE SPOKEN BURMESE ONLY (စကားပြော ဇာတ်ကြောင်းပြောဟန်):
-   - ALWAYS write in fluent, captivating conversational Burmese suitable for neural voiceover narration.
-   - Use spoken verb endings and particles: "တယ်", "ပါတယ်", "သွားတယ်", "ဖြစ်သွားတယ်", "လိုက်တယ်", "နေတယ်", "ရတော့မယ်", "ပေါ့နော်", "ဗျာ", "ရှင့်".
-   - STRICTLY FORBIDDEN: Do NOT use archaic formal written grammar (e.g. NEVER use "သည်", "ပေသည်", "သတည်း", "လျက်", "ရာတွင်", "၌", "၏").
+2. PURE SPOKEN BURMESE ONLY (စကားပြော ဇာတ်ကြောင်းပြောဟန် စစ်စစ်):
+   - STRICTLY write in fluent, natural conversational spoken Burmese designed for high-impact neural TTS voiceover.
+   - Use authentic spoken verb endings and particles: "တယ်", "ပါတယ်", "သွားတယ်", "ဖြစ်သွားတယ်", "လိုက်တယ်", "နေတယ်", "ရတော့မယ်", "ပေါ့နော်", "ဗျာ", "ရှင့်".
+   - STRICTLY FORBIDDEN: NEVER use archaic formal written grammar (e.g. NEVER use "သည်", "ပေသည်", "သတည်း", "လျက်", "ရာတွင်", "၌", "၏").
 
-3. PROSODIC PACING & BREATHING MARKS:
-   - Insert natural pauses using Burmese comma (၊) for short 80-100ms respiration pauses and full stop (။) for 150-200ms sentence cadence.
-   - Use dramatic recap hooks: "ဒီတစ်ခါမှာတော့...", "အဲဒီအချိန်မှာပဲ...", "ရုတ်တရက်...", "မထင်မှတ်ထားဘဲ...", "ဒီလိုနဲ့ပဲ...".
+3. PROSODIC NATURAL PACING & BREATHING MARKS (သဘာဝကျသော အသက်ရှူသံ အနားပေး စနစ်):
+   - Structure every sentence with natural rhythm and breath pauses for clear voice acting cadence.
+   - Insert Burmese comma (၊) for short 80-120ms natural breathing pauses between dramatic clauses and tension moments.
+   - Insert Burmese full stop (။) for 180-250ms cadence closures at the end of thoughts.
+   - Ensure syllable count per segment fits the video segment duration naturally without rushing.
 
-4. REQUIRED JSON OUTPUT FORMAT:
-Return ONLY a valid JSON object strictly matching this schema with exact segment IDs or sequential list:
+4. ACCURACY & FIDELITY:
+   - Translate faithfully sentence-by-sentence or segment-by-segment matching the source movie timeline without hallucinating or omitting critical narrative points.
+
+5. REQUIRED JSON OUTPUT FORMAT:
+Return ONLY a valid JSON object strictly matching this schema:
 {
   "translations": [
-${segments.map((_, i) => `    "Segment ${i + 1} သဘာဝကျသော စကားပြော ဇာတ်လမ်းရီကပ် စာသား..."`).join(',\n')}
+${segments.map((_, i) => `    "Segment ${i + 1} ဇာတ်ရှိန်မြင့်မားပြီး သဘာဝကျသော စကားပြော ဇာတ်လမ်းရီကပ် စာသား..."`).join(',\n')}
   ]
 }
 

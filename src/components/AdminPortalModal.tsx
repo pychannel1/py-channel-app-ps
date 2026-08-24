@@ -85,6 +85,8 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isTestingGemini, setIsTestingGemini] = useState(false);
   const [geminiTestResult, setGeminiTestResult] = useState<{ success: boolean; msg: string } | null>(null);
+  const [isTestingAssembly, setIsTestingAssembly] = useState(false);
+  const [assemblyTestResult, setAssemblyTestResult] = useState<{ success: boolean; msg: string } | null>(null);
 
   // Live Playground State
   const [testInputText, setTestInputText] = useState('The protagonist enters the facility secretly and discovers the classified files.');
@@ -147,12 +149,35 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
       if (resp.ok && data.success) {
         setGeminiTestResult({ success: true, msg: 'Gemini Master Key ချိတ်ဆက်မှု အောင်မြင်ပါသည် (Connected)' });
       } else {
-        setGeminiTestResult({ success: false, msg: data.error || 'Gemini Key စစ်ဆေးမှု မအောင်မြင်ပါ' });
+        setGeminiTestResult({ success: false, msg: data.error || 'API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။' });
       }
     } catch (e: any) {
-      setGeminiTestResult({ success: false, msg: e.message || 'Network error' });
+      setGeminiTestResult({ success: false, msg: 'API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။' });
     } finally {
       setIsTestingGemini(false);
+    }
+  };
+
+  // Test AssemblyAI Key
+  const handleTestAssemblyKey = async () => {
+    setIsTestingAssembly(true);
+    setAssemblyTestResult(null);
+    try {
+      const resp = await fetch('/api/test-assembly-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: assemblyKey }),
+      });
+      const data = await resp.json();
+      if (resp.ok && data.success) {
+        setAssemblyTestResult({ success: true, msg: 'AssemblyAI Master Key ချိတ်ဆက်မှု အောင်မြင်ပါသည် (Connected)' });
+      } else {
+        setAssemblyTestResult({ success: false, msg: data.error || 'API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။' });
+      }
+    } catch (e: any) {
+      setAssemblyTestResult({ success: false, msg: 'API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။' });
+    } finally {
+      setIsTestingAssembly(false);
     }
   };
 
@@ -777,6 +802,28 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                       placeholder="Paste AssemblyAI Master API Key here..."
                       className="w-full text-xs font-mono px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-slate-200 focus:outline-none focus:border-amber-400"
                     />
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={handleTestAssemblyKey}
+                        disabled={isTestingAssembly || !assemblyKey.trim()}
+                        className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all"
+                      >
+                        {isTestingAssembly ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                        <span>Test AssemblyAI Master Key</span>
+                      </button>
+
+                      {assemblyTestResult && (
+                        <span
+                          className={`text-xs font-mono ${
+                            assemblyTestResult.success ? 'text-emerald-400' : 'text-red-400'
+                          }`}
+                        >
+                          {assemblyTestResult.msg}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Gemini Master Key & Model */}

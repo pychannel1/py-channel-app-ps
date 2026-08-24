@@ -141,7 +141,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
 
     if (!cleanKey) {
       setAssemblyStatus('error');
-      setAssemblyMsg('ကျေးဇူးပြု၍ AssemblyAI API Key ထည့်သွင်းပေးပါ');
+      setAssemblyMsg('API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
       return;
     }
 
@@ -150,24 +150,24 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
     setAssemblyMsg('');
 
     try {
-      const resp = await fetch('https://api.assemblyai.com/v2/account', {
-        headers: {
-          authorization: cleanKey,
-        },
+      const resp = await fetch('/api/test-assembly-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: cleanKey }),
       });
+      const data = await resp.json();
 
-      if (resp.ok) {
+      if (resp.ok && data.success) {
         setAssemblyStatus('success');
-        setAssemblyMsg('✓ AssemblyAI API Key စစ်ဆေးပြီး သိမ်းဆည်းပြီးပါပြီ');
+        setAssemblyMsg('✓ AssemblyAI API Key ချိတ်ဆက်မှု အောင်မြင်ပါသည်');
         onSaveAssemblyKey(cleanKey);
       } else {
         setAssemblyStatus('error');
-        setAssemblyMsg('AssemblyAI Key မမှန်ကန်ပါ။ Token ကို ပြန်လည်စစ်ဆေးပါ။');
+        setAssemblyMsg(data.error || 'API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
       }
     } catch {
-      setAssemblyStatus('success');
-      setAssemblyMsg('✓ AssemblyAI API Key သိမ်းဆည်းပြီးပါပြီ');
-      onSaveAssemblyKey(cleanKey);
+      setAssemblyStatus('error');
+      setAssemblyMsg('API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
     } finally {
       setIsVerifyingAssembly(false);
     }
@@ -179,7 +179,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
 
     if (!cleanKey) {
       setGeminiStatus('error');
-      setGeminiMsg('ကျေးဇူးပြု၍ Google Gemini API Key ထည့်သွင်းပေးပါ');
+      setGeminiMsg('API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
       return;
     }
 
@@ -202,12 +202,11 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
         onSaveGeminiKey(cleanKey);
       } else {
         setGeminiStatus('error');
-        setGeminiMsg(data.error || 'Gemini API ချိတ်ဆက်မှု မအောင်မြင်ပါ။ Key ကို ပြန်လည်စစ်ဆေးပါ။');
+        setGeminiMsg(data.error || 'API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
       }
     } catch {
-      setGeminiStatus('success');
-      setGeminiMsg('✓ Gemini API Key သိမ်းဆည်းပြီးပါပြီ');
-      onSaveGeminiKey(cleanKey);
+      setGeminiStatus('error');
+      setGeminiMsg('API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။');
     } finally {
       setIsVerifyingGemini(false);
     }

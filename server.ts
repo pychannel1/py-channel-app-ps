@@ -54,24 +54,25 @@ app.get("/api/health", (_req, res) => {
     status: "ok",
     app: "pY Channel - AI Movie Recap Studio",
     hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+    hasAssemblyKey: Boolean(process.env.ASSEMBLYAI_API_KEY),
   });
 });
 
-// Test Gemini API Key endpoint
+// Test Gemini API Key endpoint with strict error message enforcement
 app.post("/api/test-gemini-key", async (req, res) => {
   try {
     const { apiKey } = req.body;
-    const key = apiKey || process.env.GEMINI_API_KEY;
+    const key = (apiKey || process.env.GEMINI_API_KEY || "").trim();
 
-    if (!key || typeof key !== "string" || key.trim().length === 0) {
+    if (!key || key.length === 0) {
       return res.status(400).json({
         success: false,
-        error: "API Key မထည့်သွင်းရသေးပါ။ ကျေးဇူးပြု၍ Gemini API Key ထည့်ပေးပါ။",
+        error: "API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။",
       });
     }
 
     const testClient = new GoogleGenAI({
-      apiKey: key.trim(),
+      apiKey: key,
       httpOptions: {
         headers: {
           "User-Agent": "aistudio-build",
@@ -80,30 +81,26 @@ app.post("/api/test-gemini-key", async (req, res) => {
     });
 
     const candidateModels = [
-      "gemini-3.6-flash",
       "gemini-3.7-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-flash",
+      "gemini-3.1-pro-preview",
+      "gemini-3.1-flash-lite",
       "gemini-flash-latest",
     ];
 
-    let lastError: any = null;
     let verifiedModel = "";
 
     for (const testModel of candidateModels) {
       try {
         const testResp = await testClient.models.generateContent({
           model: testModel,
-          contents: "Hello! Reply with 'OK'",
+          contents: "Test connection. Reply with OK",
         });
 
         if (testResp && (testResp.text || testResp.candidates)) {
           verifiedModel = testModel;
           break;
         }
-      } catch (err: any) {
-        lastError = err;
-        // Continue to next candidate model if 404 or model unavailable
+      } catch {
         continue;
       }
     }
@@ -116,18 +113,108 @@ app.post("/api/test-gemini-key", async (req, res) => {
       });
     }
 
-    throw lastError || new Error("Gemini API မှ တုံ့ပြန်မှု မရရှိပါ။ API Key ကို စစ်ဆေးပေးပါ။");
+    return res.status(400).json({
+      success: false,
+      error: "API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။",
+    });
   } catch (error: any) {
     console.error("Gemini API verification error:", error);
     return res.status(400).json({
       success: false,
-      error: error.message || "Invalid Gemini API Key. ချိတ်ဆက်မှု မအောင်မြင်ပါ။",
+      error: "API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။",
     });
   }
 });
 
+// Test AssemblyAI API Key endpoint
+app.post("/api/test-assembly-key", async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    const key = (apiKey || process.env.ASSEMBLYAI_API_KEY || "").trim();
+
+    if (!key || key.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။",
+      });
+    }
+
+    // Ping AssemblyAI account/status endpoint to test the key
+    const testResp = await fetch("https://api.assemblyai.com/v2/account", {
+      headers: {
+        authorization: key,
+      },
+    });
+
+    if (testResp.ok) {
+      return res.json({
+        success: true,
+        message: "AssemblyAI API Key ချိတ်ဆက်မှု အောင်မြင်ပါသည်",
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: "API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။",
+    });
+  } catch (error: any) {
+    console.error("AssemblyAI API verification error:", error);
+    return res.status(400).json({
+      success: false,
+      error: "API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။",
+    });
+  }
+});
+
+// Validate Both API Keys Endpoint
+app.post("/api/validate-keys", async (req, res) => {
+  const { geminiApiKey, assemblyApiKey } = req.body;
+  const gKey = (geminiApiKey || process.env.GEMINI_API_KEY || "").trim();
+  const aKey = (assemblyApiKey || process.env.ASSEMBLYAI_API_KEY || "").trim();
+
+  let geminiValid = false;
+  let assemblyValid = false;
+
+  // Validate Gemini
+  if (gKey) {
+    try {
+      const client = new GoogleGenAI({ apiKey: gKey });
+      const test = await client.models.generateContent({
+        model: "gemini-3.7-flash",
+        contents: "ping",
+      });
+      if (test && (test.text || test.candidates)) {
+        geminiValid = true;
+      }
+    } catch {}
+  }
+
+  // Validate AssemblyAI
+  if (aKey) {
+    try {
+      const resp = await fetch("https://api.assemblyai.com/v2/account", {
+        headers: { authorization: aKey },
+      });
+      if (resp.ok) {
+        assemblyValid = true;
+      }
+    } catch {}
+  }
+
+  res.json({
+    gemini: {
+      valid: geminiValid,
+      error: geminiValid ? undefined : "API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။",
+    },
+    assembly: {
+      valid: assemblyValid,
+      error: assemblyValid ? undefined : "API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။",
+    },
+  });
+});
+
 // Translation Endpoint using Gemini Flash models for Burmese Movie Recap Script
-// Fully supports up to 10 minutes of video segments with parallel chunk batching
+// Fully configured for dramatic, cinematic, and professional movie-recap style narration with natural pacing
 app.post("/api/translate-recap", async (req, res) => {
   try {
     const {
@@ -143,36 +230,43 @@ app.post("/api/translate-recap", async (req, res) => {
       return res.status(400).json({ error: "No transcript segments provided" });
     }
 
-    const effectiveKey = apiKey || process.env.GEMINI_API_KEY || "";
+    const effectiveKey = (apiKey || process.env.GEMINI_API_KEY || "").trim();
     let mergedTranslations: any[] = [];
     let modelUsed = "neural_recap_engine";
 
-    if (effectiveKey && effectiveKey.trim().length > 5) {
+    if (effectiveKey && effectiveKey.length > 5) {
       modelUsed = model || "gemini-3.7-flash";
       const ai = getGeminiClient(effectiveKey);
-      const systemPrompt = customSystemPrompt || `You are a professional translator and script recap expert for Myanmar. Translate accurately, maintain natural phrasing, and do NOT hallucinate or alter the core narrative.
+      const systemPrompt = customSystemPrompt || `You are a master Myanmar movie-recap scriptwriter and cinematic narrator for "pY Channel".
+Your mission: Transform movie transcripts into dramatic, cinematic, and professional movie-recap style narration with natural pacing and gripping storytelling.
 
-CRITICAL TRANSLATION & RECAP DIRECTIVES:
-1. ACCURATE SENTENCE-BY-SENTENCE TRANSLATION:
-   - Translate sentence by sentence or segment by segment without skipping, hallucinating, or altering the original story narrative.
-   - Maintain absolute factual fidelity to the source movie plot, character actions, and dialogues.
+CRITICAL MOVIE-RECAP NARRATION DIRECTIVES:
+1. DRAMATIC, CINEMATIC & PROFESSIONAL RECAP STYLE:
+   - Deliver an immersive, tension-filled, cinematic movie recap experience.
+   - Build suspense, highlight dramatic stakes, emotional climaxes, and heroic action sequences.
+   - Hook viewers with dynamic recap phrasing: "ဒီတစ်ခါမှာတော့...", "အဲဒီအချိန်မှာပဲ...", "ရုတ်တရက်...", "မထင်မှတ်ထားဘဲ...", "ဇာတ်လမ်းရဲ့ အလှည့်အပြောင်းမှာတော့...", "အခြေအနေတွေက ပိုမိုတင်းမာလာပြီး...".
 
-2. PURE SPOKEN BURMESE VOCABULARY & PARTICLES (စကားပြော ဇာတ်ကြောင်းပြောဟန်):
-   - Use high-retention, engaging conversational Burmese appropriate for movie narration.
-   - Use spoken verb endings and particles: "တယ်", "ပါတယ်", "သွားတယ်", "ဖြစ်သွားတယ်", "လိုက်တယ်", "နေတယ်", "ရတော့မယ်", "ပေါ့နော်", "ဗျာ", "ရှင့်".
+2. PURE SPOKEN BURMESE ONLY (စကားပြော ဇာတ်ကြောင်းပြောဟန် စစ်စစ်):
+   - STRICTLY write in fluent, natural conversational spoken Burmese designed for high-impact neural TTS voiceover.
+   - Use authentic spoken verb endings and particles: "တယ်", "ပါတယ်", "သွားတယ်", "ဖြစ်သွားတယ်", "လိုက်တယ်", "နေတယ်", "ရတော့မယ်", "ပေါ့နော်", "ဗျာ", "ရှင့်".
    - STRICTLY FORBIDDEN: NEVER use archaic formal written grammar (e.g. NEVER use "သည်", "ပေသည်", "သတည်း", "လျက်", "ရာတွင်", "၌", "၏").
 
-3. PROSODIC PACING & BREATHING MARKS (အသက်ရှူသံ အနားပေး စနစ်):
-   - Insert natural pauses using Burmese comma (၊) for short pauses and full stop (။) for sentence ends.
-   - Pacing Tone: ${targetTone}.
+3. PROSODIC NATURAL PACING & BREATHING MARKS (သဘာဝကျသော အသက်ရှူသံ အနားပေး စနစ်):
+   - Structure every sentence with natural rhythm and breath pauses for clear voice acting cadence.
+   - Insert Burmese comma (၊) for short 80-120ms natural breathing pauses between dramatic clauses and tension moments.
+   - Insert Burmese full stop (။) for 180-250ms cadence closures at the end of thoughts.
+   - Ensure syllable count per segment fits the video segment duration naturally without rushing.
 
-4. STRICT JSON FORMAT:
-   - Return ONLY a valid JSON object strictly matching this schema:
+4. ACCURACY & FIDELITY:
+   - Translate faithfully sentence-by-sentence or segment-by-segment matching the source movie timeline without hallucinating or omitting critical narrative points.
+
+5. STRICT JSON OUTPUT FORMAT:
+Return ONLY a valid JSON object matching this schema:
 {
   "translations": [
     {
       "id": "segment-id",
-      "myanmarText": "သဘာဝကျသော စကားပြော ဇာတ်လမ်းရီကပ် စာသား"
+      "myanmarText": "ဇာတ်ရှိန်မြင့်မားပြီး သဘာဝကျသော စကားပြော ဇာတ်လမ်းရီကပ် စာသား"
     }
   ]
 }`;
@@ -314,9 +408,16 @@ ${JSON.stringify(batchSegments.map(s => ({ id: s.id, time: `${s.start} - ${s.end
 app.post("/api/transcribe-assembly", async (req, res) => {
   try {
     const { apiKey, audioUrl, audioBase64, languageCode = "en" } = req.body;
-    const key = apiKey || process.env.ASSEMBLYAI_API_KEY;
+    const key = (apiKey || process.env.ASSEMBLYAI_API_KEY || "").trim();
 
-    if (!key || key.startsWith("aai_demo_")) {
+    if (!key || key.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။",
+      });
+    }
+
+    if (key.startsWith("aai_demo_")) {
       // 10-Minute Full English Sample Segments with Accurate Myanmar Narration for Demo/Test Mode
       const sample10MinSegments = [
         {
@@ -542,6 +643,9 @@ app.post("/api/transcribe-assembly", async (req, res) => {
       });
 
       if (!uploadResp.ok) {
+        if (uploadResp.status === 401 || uploadResp.status === 403) {
+          return res.status(400).json({ success: false, error: "API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။" });
+        }
         const errText = await uploadResp.text();
         return res.status(uploadResp.status).json({ error: `AssemblyAI upload failed: ${errText}` });
       }
@@ -571,6 +675,9 @@ app.post("/api/transcribe-assembly", async (req, res) => {
     });
 
     if (!transcriptResp.ok) {
+      if (transcriptResp.status === 401 || transcriptResp.status === 403) {
+        return res.status(400).json({ success: false, error: "API Key မမှန်ကန်ပါ သို့မဟုတ် မထည့်ရသေးပါ။" });
+      }
       const errText = await transcriptResp.text();
       return res.status(transcriptResp.status).json({ error: `AssemblyAI transcript request failed: ${errText}` });
     }
