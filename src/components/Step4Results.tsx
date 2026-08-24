@@ -309,6 +309,34 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  if (!videoPreviewUrl || segments.length === 0) {
+    return (
+      <div className="space-y-6 animate-fadeIn">
+        <div className="glass-panel p-8 sm:p-12 rounded-3xl border border-amber-500/30 text-center space-y-5 bg-slate-950/80 shadow-2xl">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/30">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xl font-bold text-white font-burmese">
+              ကျေးဇူးပြု၍ ဗီဒီယို အရင်တင်ပါ (Please Upload Video First)
+            </h3>
+            <p className="text-sm text-slate-400 max-w-md mx-auto font-burmese">
+              Recap ပြုလုပ်ရန် Video ဖိုင် မတင်ရသေးပါ။ Step 1 တွင် Video ဖိုင်ကို အရင်တင်ပြီး Audio Extraction ပြုလုပ်ပေးပါ။
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onStartNewProject}
+            className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 text-black font-bold text-sm shadow-lg shadow-amber-500/25 transition-all cursor-pointer inline-flex items-center gap-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span className="font-burmese">Step 1 သို့ သွား၍ Video တင်မည်</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -407,20 +435,9 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
                 ref={videoRef}
                 src={videoPreviewUrl || undefined}
                 crossOrigin="anonymous"
-                style={{ transform: 'scaleX(-1)' }}
                 muted
                 autoPlay={false}
                 playsInline
-                controls
-                controlsList="nodownload nofullscreen noremoteplayback"
-                onVolumeChange={(e) => {
-                  // Force mute if user attempts unmuting via native shortcuts
-                  const target = e.currentTarget;
-                  if (!target.muted || target.volume > 0) {
-                    target.muted = true;
-                    target.volume = 0;
-                  }
-                }}
                 className="w-full h-full object-contain pointer-events-auto"
                 preload="auto"
                 onClick={togglePlay}

@@ -180,32 +180,28 @@ export async function renderMirroredRecapVideo({
       let animationFrameId: number;
       let isRenderingDone = false;
 
-      // Drawing loop with Automatic Horizontal Mirroring
+      // Drawing loop with Standard Video Orientation
       const drawFrame = () => {
         if (isRenderingDone) return;
 
         const currentSec = video.currentTime;
         const currentMs = currentSec * 1000;
         const pct = Math.min(95, 20 + (currentSec / videoDuration) * 75);
-        updateProgress(pct, `Auto-Mirroring & Video Encoding... (${Math.round(pct)}%)`);
+        updateProgress(pct, `Video Encoding & Subtitle Embedding... (${Math.round(pct)}%)`);
 
         // A. Clear background
         ctx.fillStyle = '#05070d';
         ctx.fillRect(0, 0, width, height);
 
-        // B. CRITICAL: Draw Video Frame Horizontally Flipped (Auto-Mirroring for Copyright Protection)
-        ctx.save();
-        ctx.translate(width, 0);
-        ctx.scale(-1, 1); // <--- AUTOMATIC HORIZONTAL FLIP
+        // B. Draw Video Frame in standard, correct orientation
         ctx.drawImage(video, 0, 0, width, height);
-        ctx.restore();
 
         // C. Find active subtitle segment for current time
         const activeSegment =
           segments.find((s) => currentMs >= s.startMs && currentMs <= s.endMs) ||
           segments.find((s) => Math.abs(currentMs - s.startMs) < 1200);
 
-        // D. Draw Subtitles in Normal Unflipped High-Legibility Myanmar Font
+        // D. Draw Subtitles in High-Legibility Myanmar Font
         if (activeSegment) {
           const subtitleText = activeSegment.myanmarText || activeSegment.sourceText;
           if (subtitleText && subtitleText.trim()) {
@@ -233,7 +229,7 @@ export async function renderMirroredRecapVideo({
         const blobUrl = URL.createObjectURL(finalBlob);
 
         setTimeout(() => {
-          updateProgress(100, 'အလိုအလျောက် ဘယ်ညာလှည့်ပြီးသား Final Recap Video အဆင်သင့်ဖြစ်ပါပြီ!');
+          updateProgress(100, 'Final Recap Video အဆင်သင့်ဖြစ်ပါပြီ!');
           try {
             audioCtx.close();
           } catch {}

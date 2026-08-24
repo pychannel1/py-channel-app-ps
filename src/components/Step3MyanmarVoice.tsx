@@ -434,6 +434,26 @@ export const Step3MyanmarVoice: React.FC<Step3MyanmarVoiceProps> = ({
   const maleCount = BURMESE_VOICE_AVATARS.filter((v) => v.gender === 'male').length;
   const femaleCount = BURMESE_VOICE_AVATARS.filter((v) => v.gender === 'female').length;
 
+  if (segments.length === 0) {
+    return (
+      <div className="space-y-6 animate-fadeIn">
+        <div className="glass-panel p-8 sm:p-12 rounded-3xl border border-amber-500/30 text-center space-y-5 bg-slate-950/80 shadow-2xl">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/30">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xl font-bold text-white font-burmese">
+              ကျေးဇူးပြု၍ ဗီဒီယို အရင်တင်ပါ (Please Upload Video First)
+            </h3>
+            <p className="text-sm text-slate-400 max-w-md mx-auto font-burmese">
+              မြန်မာအသံ ထည့်သွင်းရန် Video ဖိုင် မတင်ရသေးပါ။ Step 1 တွင် Video ဖိုင်ကို အရင်တင်ပြီး Audio Extraction ပြုလုပ်ပေးပါ။
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header with Title and Action Buttons */}

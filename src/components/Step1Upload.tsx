@@ -111,13 +111,6 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
     onStartAudioExtraction();
   };
 
-  // Sample demo video loader for quick testing
-  const handleLoadSampleVideo = async (sampleName: string) => {
-    const sampleBlob = new Blob(['sample-video-content'], { type: 'video/mp4' });
-    const sampleFile = new File([sampleBlob], `${sampleName}.mp4`, { type: 'video/mp4' });
-    onFileUpload(sampleFile);
-  };
-
   return (
     <div className="space-y-6">
       {/* Title & Burmese description */}
@@ -196,80 +189,6 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
               <span className="px-3 py-1 rounded-lg bg-slate-900/90 border border-white/10 font-mono">
                 🚀 Up to 1080p / 4K Clips
               </span>
-            </div>
-          </div>
-
-          {/* Quick Demo Video Pickers */}
-          <div className="glass-panel p-5 rounded-2xl border border-white/10 bg-slate-950/60">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <span className="text-xs font-bold text-slate-300 font-burmese flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                အစမ်းလေ့လာရန် Sample Movie Clips ရွေးချယ်နိုင်သည် (၁၀ မိနစ်စာ English Audio ပါဝင်သည်)
-              </span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <button
-                type="button"
-                onClick={() => handleLoadSampleVideo('chronicles_10min_epic_scifi')}
-                className="p-3.5 rounded-xl bg-amber-950/30 hover:bg-amber-900/40 border border-amber-500/40 hover:border-amber-400 text-left transition-all cursor-pointer flex items-center justify-between group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-lg bg-amber-500/30 border border-amber-400/50 flex items-center justify-center text-amber-300 font-bold text-xs group-hover:scale-105 transition-transform flex-shrink-0">
-                    ⏱️
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-amber-300 group-hover:text-amber-200 transition-colors">
-                      10-Min Full Sci-Fi Epic
-                    </div>
-                    <div className="text-[11px] text-slate-300 font-burmese">
-                      ကြာချိန်: ၁၀ မိနစ် • English Audio
-                    </div>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-amber-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleLoadSampleVideo('action_heist_scene_1080p')}
-                className="p-3.5 rounded-xl bg-slate-900/80 hover:bg-amber-950/40 border border-white/10 hover:border-amber-500/40 text-left transition-all cursor-pointer flex items-center justify-between group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold text-xs group-hover:scale-105 transition-transform flex-shrink-0">
-                    🎬
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
-                      Action Heist Scene
-                    </div>
-                    <div className="text-[11px] text-slate-400 font-burmese">
-                      ကြာချိန်: 2 မိနစ် • English Audio
-                    </div>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleLoadSampleVideo('scifi_trailer_recap_4k')}
-                className="p-3.5 rounded-xl bg-slate-900/80 hover:bg-amber-950/40 border border-white/10 hover:border-amber-500/40 text-left transition-all cursor-pointer flex items-center justify-between group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-lg bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400 font-bold text-xs group-hover:scale-105 transition-transform flex-shrink-0">
-                    🚀
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
-                      Sci-Fi Thriller Trailer
-                    </div>
-                    <div className="text-[11px] text-slate-400 font-burmese">
-                      ကြာချိန်: 1.5 မိနစ် • English Audio
-                    </div>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
-              </button>
             </div>
           </div>
         </div>

@@ -249,39 +249,45 @@ export const TranscriptHubModal: React.FC<TranscriptHubModalProps> = ({
               ))
             )
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {SAMPLE_MOVIES.map((movie) => (
-                <div
-                  key={movie.id}
-                  className="p-4 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-amber-500/40 transition-all flex flex-col justify-between space-y-3 group"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                        {movie.genre}
-                      </span>
-                      <span className="text-[10px] font-mono text-slate-400">{movie.duration}</span>
-                    </div>
-                    <h3 className="text-sm font-bold text-white group-hover:text-amber-300 transition-colors">
-                      {movie.title}
-                    </h3>
-                    <p className="text-xs text-slate-400 line-clamp-2">{movie.description}</p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onLoadSegments(movie.segments, movie.title);
-                      onClose();
-                    }}
-                    className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-semibold transition-all cursor-pointer"
+            SAMPLE_MOVIES.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {SAMPLE_MOVIES.map((movie) => (
+                  <div
+                    key={movie.id}
+                    className="p-4 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-amber-500/40 transition-all flex flex-col justify-between space-y-3 group"
                   >
-                    <span>{language === 'mm' ? 'ဤပရောဂျက်ကို ဖွင့်မည်' : 'Load Into Studio'}</span>
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                          {movie.genre}
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-400">{movie.duration}</span>
+                      </div>
+                      <h3 className="text-sm font-bold text-white group-hover:text-amber-300 transition-colors">
+                        {movie.title}
+                      </h3>
+                      <p className="text-xs text-slate-400 line-clamp-2">{movie.description}</p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onLoadSegments(movie.segments, movie.title);
+                        onClose();
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-semibold transition-all cursor-pointer"
+                    >
+                      <span>{language === 'mm' ? 'ဤပရောဂျက်ကို ဖွင့်မည်' : 'Load Into Studio'}</span>
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center text-slate-500 font-burmese text-sm">
+                သိမ်းဆည်းထားသော Script များ မရှိသေးပါ။ Step 1 တွင် Video ဖိုင် တင်သွင်းပါ။
+              </div>
+            )
           )}
         </div>
       </div>

@@ -93,13 +93,13 @@ function MainStudioApp() {
 
   // Video State
   const [selectedVideoFile, setSelectedVideoFile] = useState<File | null>(null);
-  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(SAMPLE_MOVIES[0].videoUrl);
-  const [videoDurationFormatted, setVideoDurationFormatted] = useState<string>(SAMPLE_MOVIES[0].duration);
-  const [videoDurationSeconds, setVideoDurationSeconds] = useState<number>(SAMPLE_MOVIES[0].durationSeconds);
-  const [videoFileName, setVideoFileName] = useState<string>(`${SAMPLE_MOVIES[0].title}.mp4`);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  const [videoDurationFormatted, setVideoDurationFormatted] = useState<string>('00:00');
+  const [videoDurationSeconds, setVideoDurationSeconds] = useState<number>(0);
+  const [videoFileName, setVideoFileName] = useState<string>('');
 
   // Transcription & Translation Segments
-  const [segments, setSegments] = useState<TranscriptSegment[]>(SAMPLE_MOVIES[0].segments);
+  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
 
   // Step 1: Audio Extraction State
   const [isExtractingAudio, setIsExtractingAudio] = useState(false);
@@ -643,14 +643,19 @@ function MainStudioApp() {
         URL.revokeObjectURL(generatedAudioBlobUrl);
       } catch {}
     }
+    if (videoPreviewUrl && selectedVideoFile) {
+      try {
+        URL.revokeObjectURL(videoPreviewUrl);
+      } catch {}
+    }
     setGeneratedAudioBlob(null);
     setGeneratedAudioBlobUrl(null);
     setSelectedVideoFile(null);
-    setVideoPreviewUrl(SAMPLE_MOVIES[0].videoUrl);
-    setVideoFileName(`${SAMPLE_MOVIES[0].title}.mp4`);
-    setVideoDurationFormatted(SAMPLE_MOVIES[0].duration);
-    setVideoDurationSeconds(SAMPLE_MOVIES[0].durationSeconds);
-    setSegments(SAMPLE_MOVIES[0].segments);
+    setVideoPreviewUrl(null);
+    setVideoFileName('');
+    setVideoDurationFormatted('00:00');
+    setVideoDurationSeconds(0);
+    setSegments([]);
     setCurrentStep(1);
     setIsRenderComplete(false);
   };
