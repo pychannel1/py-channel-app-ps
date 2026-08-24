@@ -1,6 +1,7 @@
 // src/components/VoiceCard.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import { playInstantVoicePreview } from '../utils/audioPlayer';
+import { playVoicePreview } from '../utils/audioSynthesis';
+import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
 
 interface VoiceCardProps {
   id: string;
@@ -46,9 +47,18 @@ export const VoiceCard: React.FC<VoiceCardProps> = ({
     }
 
     setIsPlaying(true);
-    const controller = await playInstantVoicePreview(id || index, sampleText, () => {
-      setIsPlaying(false);
-      controllerRef.current = null;
+    const targetVoice =
+      BURMESE_VOICE_AVATARS.find((v) => v.id === id) ||
+      BURMESE_VOICE_AVATARS[index] ||
+      BURMESE_VOICE_AVATARS[0];
+
+    const controller = await playVoicePreview({
+      voice: targetVoice,
+      customText: sampleText || targetVoice.samplePhraseBurmese,
+      onEnded: () => {
+        setIsPlaying(false);
+        controllerRef.current = null;
+      },
     });
     controllerRef.current = controller;
   };
@@ -89,4 +99,5 @@ export const VoiceCard: React.FC<VoiceCardProps> = ({
     </div>
   );
 };
+
 

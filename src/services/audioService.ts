@@ -1,6 +1,5 @@
-import { normalizeMyanmarForTTS } from '../utils/myanmarTextNormalizer';
-import { unlockAudioContext } from '../utils/audioSynthesis';
-import { generateSyntheticSpeechWavBlob } from '../utils/audioSynthesizer';
+import { playVoicePreview, generateBurmeseAudioBlob } from '../utils/audioSynthesis';
+import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
 
 declare global {
   interface Window {
@@ -8,27 +7,8 @@ declare global {
   }
 }
 
-let activeAudioElement: HTMLAudioElement | null = null;
-
 /**
- * Universal Shared Audio Element to guarantee gesture-unlocked playback on Mobile Chrome/Safari/WebView
- */
-let sharedServiceAudio: HTMLAudioElement | null = null;
-
-export function getSharedServiceAudio(): HTMLAudioElement {
-  if (!sharedServiceAudio) {
-    sharedServiceAudio = new Audio();
-    sharedServiceAudio.crossOrigin = 'anonymous';
-    sharedServiceAudio.preload = 'auto';
-    sharedServiceAudio.volume = 1.0;
-    sharedServiceAudio.muted = false;
-  }
-  return sharedServiceAudio;
-}
-
-/**
- * 100% Guaranteed Working Multi-Endpoint Client-Side Myanmar Speech & Audio Player
- * Bypasses all browser restrictions with multi-mirror CDN, backend synthesis, and Web Speech fallback.
+ * Direct forwarder to the unified playVoicePreview engine
  */
 export async function playMyanmarVoiceModel(
   text: string,
@@ -36,132 +16,32 @@ export async function playMyanmarVoiceModel(
   speed: number = 1.0
 ): Promise<void> {
   const sampleText = text.trim() || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်';
-  const encodedText = encodeURIComponent(sampleText.substring(0, 300));
 
-  // Determine gender strictly
-  let isMale = false;
-  let voiceId = 'voice-female-hs';
-  let basePitchHz = 2;
+  let targetVoice = BURMESE_VOICE_AVATARS[0];
 
   if (typeof voiceOrGenderOrIndex === 'object' && voiceOrGenderOrIndex !== null) {
-    isMale = voiceOrGenderOrIndex.gender === 'male';
-    voiceId = voiceOrGenderOrIndex.id || (isMale ? 'voice-male-bb' : 'voice-female-hs');
-    basePitchHz = voiceOrGenderOrIndex.basePitchHz ?? (isMale ? -4 : 2);
-  } else if (typeof voiceOrGenderOrIndex === 'string') {
-    const lower = voiceOrGenderOrIndex.toLowerCase();
-    if (lower === 'male' || lower === 'm' || lower.includes('thiha') || (lower.includes('male') && !lower.includes('female'))) {
-      isMale = true;
-      voiceId = 'voice-male-bb';
-      basePitchHz = -4;
-    } else {
-      isMale = false;
-      voiceId = 'voice-female-hs';
-      basePitchHz = 2;
-    }
+    targetVoice = voiceOrGenderOrIndex;
   } else if (typeof voiceOrGenderOrIndex === 'number') {
-    isMale = voiceOrGenderOrIndex < 20;
-    voiceId = isMale ? 'voice-male-bb' : 'voice-female-hs';
-    basePitchHz = isMale ? -4 : 2;
-  }
-
-  const voiceName = isMale ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural';
-
-  // Stop any previous playing audio
-  if (window.currentAudio) {
-    try {
-      window.currentAudio.pause();
-      window.currentAudio.currentTime = 0;
-    } catch {}
-  }
-  if (activeAudioElement) {
-    try {
-      activeAudioElement.pause();
-      activeAudioElement.currentTime = 0;
-    } catch {}
-  }
-
-  // 1. Primary: Direct high-definition streaming audio URL (synchronous playback for mobile browsers)
-  const streamUrl = `/api/stream-tts?text=${encodedText}&gender=${isMale ? 'male' : 'female'}&voiceName=${encodeURIComponent(
-    voiceName
-  )}&voiceId=${encodeURIComponent(voiceId)}&speedMultiplier=${speed}&basePitchHz=${basePitchHz}`;
-
-  const audio = getSharedServiceAudio();
-  audio.src = streamUrl;
-  audio.volume = 1.0;
-  audio.muted = false;
-  audio.playbackRate = Math.min(Math.max(speed, 0.5), 2.0);
-
-  window.currentAudio = audio;
-  activeAudioElement = audio;
-
-  audio.onended = () => {
-    if (window.currentAudio === audio) window.currentAudio = null;
-    if (activeAudioElement === audio) activeAudioElement = null;
-  };
-
-  try {
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      await playPromise;
-      return;
+    targetVoice = BURMESE_VOICE_AVATARS[voiceOrGenderOrIndex % BURMESE_VOICE_AVATARS.length] || BURMESE_VOICE_AVATARS[0];
+  } else if (typeof voiceOrGenderOrIndex === 'string') {
+    const found = BURMESE_VOICE_AVATARS.find((v) => v.id === voiceOrGenderOrIndex || v.code.toLowerCase() === voiceOrGenderOrIndex.toLowerCase());
+    if (found) {
+      targetVoice = found;
+    } else {
+      const isMale = voiceOrGenderOrIndex.toLowerCase().includes('male') || voiceOrGenderOrIndex.toLowerCase().includes('thiha');
+      targetVoice = BURMESE_VOICE_AVATARS.find((v) => isMale ? v.gender === 'male' : v.gender === 'female') || BURMESE_VOICE_AVATARS[0];
     }
-  } catch (playErr) {
-    console.warn('Direct stream attempt exception:', playErr);
   }
 
-  // 2. Secondary: Fallback to POST /api/tts
-  try {
-    const previewRes = await fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        voiceId,
-        gender: isMale ? 'male' : 'female',
-        voice: voiceName,
-        text: sampleText,
-        rate: speed,
-        basePitchHz,
-      }),
-    });
-
-    if (previewRes.ok) {
-      const blob = await previewRes.blob();
-      if (blob.size > 50) {
-        const audioUrl = URL.createObjectURL(blob);
-        audio.src = audioUrl;
-        await audio.play();
-        return;
-      }
-    }
-  } catch (fallbackErr) {
-    console.warn('Fallback TTS preview attempt failed:', fallbackErr);
-  }
-
-  // 3. Guaranteed Client-Side Web Speech Synthesis Engine (Zero external network dependencies)
-  try {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(sampleText);
-      const voices = window.speechSynthesis.getVoices();
-      const myVoice =
-        voices.find((v) => v.lang.includes('my') || v.lang.includes('MM')) ||
-        voices.find((v) => isMale ? (v.name.includes('Male') || v.name.includes('David')) : (v.name.includes('Female') || v.name.includes('Zira'))) ||
-        voices[0];
-      if (myVoice) utterance.voice = myVoice;
-      utterance.rate = Math.min(Math.max(speed, 0.8), 1.4);
-      utterance.pitch = isMale ? 0.9 : 1.15;
-      window.speechSynthesis.speak(utterance);
-      return;
-    }
-  } catch (speechErr) {
-    console.error('Speech Synthesis Error:', speechErr);
-  }
+  await playVoicePreview({
+    voice: targetVoice,
+    customText: sampleText,
+    speedMultiplier: speed,
+  });
 }
 
 /**
- * Fetches real Microsoft Myanmar Neural Voices (my-MM-NilarNeural / my-MM-ThihaNeural)
- * or High-Definition synthesized Audio from backend /api/tts endpoint
- * Returns a clean MP3/WAV Blob with zero CORS/403 errors.
+ * Unified Burmese TTS Audio Blob Generator
  */
 export async function fetchMyanmarTTSAudioBlob(
   text: string,
@@ -169,100 +49,18 @@ export async function fetchMyanmarTTSAudioBlob(
   speed: number = 1.0,
   pitchOffset: number = 0
 ): Promise<Blob> {
-  const cleanText = normalizeMyanmarForTTS(text.trim() || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်');
-  const targetVoice = voiceGender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural';
-
-  // 1. Primary: POST /api/tts
-  try {
-    const res = await fetch('/api/tts', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        text: cleanText,
-        voice: targetVoice,
-        voiceGender,
-        rate: speed,
-        pitchOffset,
-      }),
-    });
-
-    if (res.ok) {
-      const blob = await res.blob();
-      if (blob.size > 50) {
-        return blob;
-      }
-    }
-  } catch (err) {
-    console.warn('POST /api/tts failed, attempting GET /api/tts stream fallback:', err);
-  }
-
-  // 2. Secondary Fallback: GET /api/tts Stream
-  try {
-    const streamUrl = `/api/tts?text=${encodeURIComponent(cleanText)}&gender=${encodeURIComponent(
-      voiceGender
-    )}&rate=${speed}&pitch=${pitchOffset}`;
-    const getRes = await fetch(streamUrl);
-    if (getRes.ok) {
-      const blob = await getRes.blob();
-      if (blob.size > 50) {
-        return blob;
-      }
-    }
-  } catch (err) {
-    console.warn('GET /api/tts failed:', err);
-  }
-
-  // 3. Tertiary Fallback: POST /api/synthesize-burmese-tts
-  try {
-    const fallbackRes = await fetch('/api/synthesize-burmese-tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: cleanText,
-        gender: voiceGender,
-        speedMultiplier: speed,
-        pitchOffset,
-      }),
-    });
-
-    if (fallbackRes.ok) {
-      const data = await fallbackRes.json();
-      if (data.audioBase64) {
-        const base64Data = data.audioBase64.replace(/^data:audio\/[^;]+;base64,/, '');
-        const byteCharacters = atob(base64Data);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        return new Blob([byteArray], { type: 'audio/mpeg' });
-      }
-    }
-  } catch (err) {
-    console.error('All backend TTS fetch attempts failed:', err);
-  }
-
-  // 4. Guaranteed Client-Side Real Speech Stream Fallback
-  try {
-    const directUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
-      cleanText.slice(0, 70)
-    )}&tl=my&client=tw-ob&total=1&idx=0&textlen=${Math.min(70, cleanText.length)}`;
-    const directResp = await fetch(directUrl);
-    if (directResp.ok) {
-      return await directResp.blob();
-    }
-  } catch (wavErr) {
-    console.warn('Direct speech stream fallback notice:', wavErr);
-  }
-
-  return new Blob([], { type: 'audio/mpeg' });
+  const targetVoice = BURMESE_VOICE_AVATARS.find((v) => v.gender === voiceGender) || BURMESE_VOICE_AVATARS[0];
+  const result = await generateBurmeseAudioBlob({
+    text,
+    voice: targetVoice,
+    pitchOffsetHz: pitchOffset,
+    speedMultiplier: speed,
+  });
+  return result.blob;
 }
 
 /**
- * 100% Working Myanmar Neural Voice Playback connected to backend /api/tts
- * Supports Edge-TTS my-MM-NilarNeural and my-MM-ThihaNeural with proper headers.
+ * 100% Working Myanmar Neural Voice Playback using the Admin playVoicePreview engine
  */
 export async function playMyanmarSpeech(
   text: string,
@@ -271,82 +69,18 @@ export async function playMyanmarSpeech(
   pitchOffset: number = 0,
   onEnded?: () => void
 ): Promise<{ stop: () => void }> {
-  // Unlock audio
-  await unlockAudioContext();
-
-  // Stop existing audio
-  if (window.currentAudio) {
-    try {
-      window.currentAudio.pause();
-      window.currentAudio.currentTime = 0;
-    } catch {}
-  }
-  if (activeAudioElement) {
-    try {
-      activeAudioElement.pause();
-      activeAudioElement.currentTime = 0;
-    } catch {}
-    activeAudioElement = null;
-  }
-
-  const cleanText = text.trim() || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်ကြောင်းပြော Studio မှ ကြိုဆိုပါသည်';
-  const audio = new Audio();
-  audio.volume = 1.0;
-  audio.muted = false;
-  audio.playbackRate = Math.max(0.5, Math.min(2.0, speed || 1.0));
-
-  window.currentAudio = audio;
-  activeAudioElement = audio;
-
-  let isStopped = false;
-
-  const stopAudio = () => {
-    isStopped = true;
-    try {
-      audio.pause();
-      audio.currentTime = 0;
-    } catch {}
-    if (window.currentAudio === audio) window.currentAudio = null;
-    if (activeAudioElement === audio) activeAudioElement = null;
-    if (onEnded) onEnded();
-  };
-
-  audio.onended = () => {
-    if (window.currentAudio === audio) window.currentAudio = null;
-    if (activeAudioElement === audio) activeAudioElement = null;
-    if (!isStopped && onEnded) onEnded();
-  };
-
-  try {
-    const blob = await fetchMyanmarTTSAudioBlob(cleanText, voiceGender, speed, pitchOffset);
-    if (!isStopped && blob.size > 0) {
-      const audioUrl = URL.createObjectURL(blob);
-      audio.src = audioUrl;
-      audio.onended = () => {
-        URL.revokeObjectURL(audioUrl);
-        if (window.currentAudio === audio) window.currentAudio = null;
-        if (activeAudioElement === audio) activeAudioElement = null;
-        if (!isStopped && onEnded) onEnded();
-      };
-      await audio.play();
-    } else if (!isStopped) {
-      // Direct stream fallback
-      const streamUrl = `/api/tts?text=${encodeURIComponent(cleanText)}&gender=${voiceGender}&rate=${speed}`;
-      audio.src = streamUrl;
-      await audio.play();
-    }
-  } catch (err) {
-    console.error('Audio playback error in playMyanmarSpeech, trying fallback player:', err);
-    if (!isStopped) {
-      await playMyanmarVoiceModel(cleanText, voiceGender === 'male' ? 0 : 1, speed);
-      if (onEnded) onEnded();
-    }
-  }
-
-  return { stop: stopAudio };
+  const targetVoice = BURMESE_VOICE_AVATARS.find((v) => v.gender === voiceGender) || BURMESE_VOICE_AVATARS[0];
+  return playVoicePreview({
+    voice: targetVoice,
+    customText: text,
+    speedMultiplier: speed,
+    pitchOffsetHz: pitchOffset,
+    onEnded,
+  });
 }
 
 export { playModelPreview, generateSyntheticSpeechWavBlob } from '../utils/audioSynthesizer';
 export { playInstantVoicePreview, playRealMyanmarAudio } from '../utils/audioPlayer';
+
 
 

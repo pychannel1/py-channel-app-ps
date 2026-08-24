@@ -1,10 +1,9 @@
 // src/utils/audioPlayer.ts
 import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
-
-let currentAudio: HTMLAudioElement | null = null;
+import { playVoicePreview } from './audioSynthesis';
 
 /**
- * Real authentic Myanmar spoken audio playback using dedicated high-fidelity TTS streams.
+ * Direct forwarder to the unified Admin & User audio preview engine (playVoicePreview)
  * Zero robotic oscillators, 100% genuine spoken Myanmar speech.
  */
 export async function playRealMyanmarAudio(
@@ -14,134 +13,46 @@ export async function playRealMyanmarAudio(
   onEnded?: () => void,
   voiceId?: string
 ): Promise<{ stop: () => void }> {
-  try {
-    // Stop any previously playing audio
-    if (currentAudio) {
-      try {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
-      } catch {}
-      currentAudio = null;
-    }
+  let targetVoice = voiceId
+    ? BURMESE_VOICE_AVATARS.find((v) => v.id === voiceId)
+    : BURMESE_VOICE_AVATARS.find((v) => v.gender === voiceGender);
 
-    const defaultPhrase = "မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်";
-    const rawText = (text || defaultPhrase).trim();
-    const cleanText = encodeURIComponent(rawText.substring(0, 200));
-
-    // 1. Primary: Dedicated server voice stream endpoint
-    const primaryUrl = voiceId
-      ? `/api/voice-audio/${encodeURIComponent(voiceId)}?text=${cleanText}&gender=${voiceGender}&speedMultiplier=${speed}`
-      : `/api/stream-tts?text=${cleanText}&gender=${voiceGender}&speedMultiplier=${speed}`;
-
-    // 2. Secondary fallback: Direct Google Myanmar spoken TTS
-    const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${cleanText}&tl=my&client=tw-ob&total=1&idx=0&textlen=${rawText.substring(0, 200).length}`;
-
-    const audio = new Audio(primaryUrl);
-    currentAudio = audio;
-    audio.playbackRate = Math.min(Math.max(speed, 0.75), 1.5);
-    audio.volume = 1.0;
-
-    let hasRetriedFallback = false;
-
-    const stop = () => {
-      if (currentAudio === audio) {
-        try {
-          audio.pause();
-          audio.currentTime = 0;
-        } catch {}
-        currentAudio = null;
-      }
-      if (onEnded) onEnded();
-    };
-
-    audio.onended = () => {
-      if (currentAudio === audio) {
-        currentAudio = null;
-      }
-      if (onEnded) onEnded();
-    };
-
-    audio.onerror = async () => {
-      if (!hasRetriedFallback) {
-        hasRetriedFallback = true;
-        try {
-          audio.src = fallbackUrl;
-          await audio.play();
-          return;
-        } catch (fbErr) {
-          console.warn("Myanmar TTS Stream Fallback Error:", fbErr);
-        }
-      }
-      if (onEnded) onEnded();
-    };
-
-    await audio.play().catch(async (playErr) => {
-      if (!hasRetriedFallback) {
-        hasRetriedFallback = true;
-        try {
-          audio.src = fallbackUrl;
-          await audio.play();
-        } catch (secErr) {
-          console.warn("Audio play rejected:", secErr || playErr);
-          if (onEnded) onEnded();
-        }
-      }
-    });
-
-    return { stop };
-  } catch (error) {
-    console.error("Audio playback error:", error);
-    if (onEnded) onEnded();
-    return { stop: () => {} };
+  if (!targetVoice) {
+    targetVoice = BURMESE_VOICE_AVATARS[0];
   }
+
+  return playVoicePreview({
+    voice: targetVoice,
+    customText: text || targetVoice.samplePhraseBurmese,
+    speedMultiplier: speed,
+    onEnded,
+  });
 }
 
 /**
  * Instant preview function for Voice Cards and Model Selectors
- * Uses real Burmese TTS audio stream corresponding to the voice model.
+ * Uses the exact same Admin playVoicePreview engine.
  */
 export async function playInstantVoicePreview(
   voiceIndexOrId: number | string,
   customText?: string,
   onEnded?: () => void
 ): Promise<{ stop: () => void }> {
-  let sampleText = customText;
-  let gender: 'male' | 'female' = 'female';
-  let speed = 1.0;
-  let targetVoiceId: string | undefined;
+  let targetVoice =
+    typeof voiceIndexOrId === 'number'
+      ? BURMESE_VOICE_AVATARS[voiceIndexOrId % BURMESE_VOICE_AVATARS.length]
+      : BURMESE_VOICE_AVATARS.find((v) => v.id === voiceIndexOrId || v.code.toLowerCase() === voiceIndexOrId.toLowerCase());
 
-  if (typeof voiceIndexOrId === 'number') {
-    const avatar = BURMESE_VOICE_AVATARS[voiceIndexOrId % BURMESE_VOICE_AVATARS.length];
-    if (avatar) {
-      sampleText = sampleText || avatar.samplePhraseBurmese;
-      gender = avatar.gender;
-      speed = avatar.baseRate || 1.0;
-      targetVoiceId = avatar.id;
-    } else {
-      gender = voiceIndexOrId < 20 ? 'male' : 'female';
-    }
-  } else if (typeof voiceIndexOrId === 'string') {
-    const avatar = BURMESE_VOICE_AVATARS.find(
-      (v) => v.id === voiceIndexOrId || v.code.toLowerCase() === voiceIndexOrId.toLowerCase()
-    );
-    if (avatar) {
-      sampleText = sampleText || avatar.samplePhraseBurmese;
-      gender = avatar.gender;
-      speed = avatar.baseRate || 1.0;
-      targetVoiceId = avatar.id;
-    } else {
-      gender = voiceIndexOrId.includes('male') ? 'male' : 'female';
-      targetVoiceId = voiceIndexOrId;
-    }
+  if (!targetVoice) {
+    targetVoice = BURMESE_VOICE_AVATARS[0];
   }
 
-  return playRealMyanmarAudio(
-    sampleText || "မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်",
-    gender,
-    speed,
+  return playVoicePreview({
+    voice: targetVoice,
+    customText: customText || targetVoice.samplePhraseBurmese,
     onEnded,
-    targetVoiceId
-  );
+  });
 }
+
 
 
