@@ -16,7 +16,7 @@ const audioBlobCache = new Map<string, { blob: Blob; blobUrl: string; serverAudi
  */
 let sharedPreviewAudio: HTMLAudioElement | null = null;
 
-function getSharedPreviewAudio(): HTMLAudioElement {
+export function getSharedPreviewAudio(): HTMLAudioElement {
   if (!sharedPreviewAudio) {
     sharedPreviewAudio = new Audio();
     sharedPreviewAudio.crossOrigin = 'anonymous';
@@ -45,22 +45,10 @@ export async function unlockAudioContext(): Promise<AudioContext> {
     }
   }
 
-  // Pre-unlock Web Audio pipeline with a micro-silent 1-sample buffer
-  try {
-    if (audioCtx && audioCtx.state === 'running') {
-      const silentBuf = audioCtx.createBuffer(1, 1, 22050);
-      const silentSrc = audioCtx.createBufferSource();
-      silentSrc.buffer = silentBuf;
-      silentSrc.connect(audioCtx.destination);
-      silentSrc.start(0);
-    }
-  } catch {}
-
   // Pre-unlock shared HTML5 audio element
   try {
     const audio = getSharedPreviewAudio();
     if (!audio.src) {
-      // Tiny silent wav data URI to warm up browser audio pipeline
       audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
       audio.volume = 1.0;
       audio.muted = false;
@@ -395,7 +383,7 @@ async function playAudioBufferWithWebAudio(
 
 /**
  * Authentic Natural Myanmar Speech Synthesis Engine for previewing all 40 voice models on mobile/desktop
- * - Uses Web Audio API Decoded Buffer playback for 0ms lag, zero stutter, and zero browser blocking.
+ * - Uses Direct HTML5 Streaming Audio & Web Audio API for 0ms lag, zero stutter, and zero browser blocking.
  * - Supports both object signature ({ voice, pitchOffsetHz, speedMultiplier, customText, onEnded, onError })
  *   and positional signature (text, voiceId, speed).
  */
@@ -456,23 +444,17 @@ export async function playVoicePreview(
   }
 
   // Pre-unlock AudioContext on user gesture
-  const ctx = await unlockAudioContext();
-
-  const cacheKey = `${targetVoice.id}_${finalPitch}_${effectiveSpeed}_${normalizedText}`;
-  const cachedBuffer = audioBufferCache.get(cacheKey);
+  unlockAudioContext().catch(() => {});
 
   let isStopped = false;
-  let activeSubController: { stop: () => void } | null = null;
+
+  const audio = getSharedPreviewAudio();
+  currentActiveAudio = audio;
+  window.currentAudio = audio;
 
   const stopAll = () => {
     if (isStopped) return;
     isStopped = true;
-    if (activeSubController) {
-      try {
-        activeSubController.stop();
-      } catch {}
-      activeSubController = null;
-    }
     if (currentActiveAudio) {
       try {
         currentActiveAudio.pause();
@@ -487,65 +469,19 @@ export async function playVoicePreview(
     if (onEndedCallback) onEndedCallback();
   };
 
-  // IF CACHED IN WEBAUDIO BUFFER -> Play 0ms instantly!
-  if (cachedBuffer) {
-    onStatusCallback?.('playing', null);
-    onStartCallback?.();
-    const ctrl = await playAudioBufferWithWebAudio(cachedBuffer, effectiveSpeed, () => {
-      onStatusCallback?.('idle', null);
-      if (onEndedCallback) onEndedCallback();
-    });
-    activeSubController = ctrl;
-    return { stop: stopAll };
-  }
-
-  // 2. Prepare streaming audio URL pointing to dedicated voice endpoint
-  const streamUrl = `/api/voice-audio/${encodeURIComponent(targetVoice.id)}?text=${encodeURIComponent(
+  // Primary URL using dedicated voice endpoint
+  const primaryStreamUrl = `/api/voice-audio/${encodeURIComponent(targetVoice.id)}?text=${encodeURIComponent(
     normalizedText
   )}&gender=${encodeURIComponent(targetVoice.gender)}&voiceName=${encodeURIComponent(
     targetVoice.voiceName || (targetVoice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural')
-  )}&pitchOffset=${pitchOffsetHz}&speedMultiplier=${effectiveSpeed}&basePitchHz=${targetVoice.basePitchHz ?? 0}`;
+  )}&pitchOffset=${finalPitch}&speedMultiplier=${effectiveSpeed}&basePitchHz=${targetVoice.basePitchHz ?? 0}`;
 
-  // Try fetching binary arrayBuffer first for zero-stutter Web Audio decoding
-  try {
-    const fetchResp = await fetch(streamUrl);
-    if (fetchResp.ok) {
-      const arrayBuf = await fetchResp.arrayBuffer();
-      if (arrayBuf.byteLength > 50 && !isStopped) {
-        try {
-          const decoded = await ctx.decodeAudioData(arrayBuf.slice(0));
-          audioBufferCache.set(cacheKey, decoded);
-          if (!isStopped) {
-            onStatusCallback?.('playing', null);
-            onStartCallback?.();
-            const ctrl = await playAudioBufferWithWebAudio(decoded, effectiveSpeed, () => {
-              onStatusCallback?.('idle', null);
-              if (onEndedCallback) onEndedCallback();
-            });
-            activeSubController = ctrl;
-            return { stop: stopAll };
-          }
-        } catch (decodeErr) {
-          console.warn('Web Audio decode warning, falling back to HTML5 Audio element:', decodeErr);
-        }
-      }
-    }
-  } catch (netErr) {
-    console.warn('Direct fetch stream warning:', netErr);
-  }
+  // Secondary stream url fallback
+  const secondaryStreamUrl = `/api/stream-tts?text=${encodeURIComponent(normalizedText)}&gender=${encodeURIComponent(
+    targetVoice.gender
+  )}&voiceId=${encodeURIComponent(targetVoice.id)}`;
 
-  if (isStopped) return { stop: stopAll };
-
-  // 3. Robust HTML5 Audio Element playback with automatic multi-stream failover
-  const audio = getSharedPreviewAudio();
-  currentActiveAudio = audio;
-  window.currentAudio = audio;
-
-  const directGoogleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
-    sampleText.substring(0, 180)
-  )}&tl=my&client=tw-ob&total=1&idx=0&textlen=${sampleText.substring(0, 180).length}`;
-
-  let hasTriedFallback = false;
+  let fallbackAttempt = 0;
 
   audio.onplay = () => {
     onStatusCallback?.('playing', null);
@@ -564,11 +500,13 @@ export async function playVoicePreview(
 
   audio.onerror = () => {
     if (isStopped) return;
-    if (!hasTriedFallback) {
-      hasTriedFallback = true;
+    if (fallbackAttempt === 0) {
+      fallbackAttempt = 1;
       try {
-        audio.src = directGoogleTtsUrl;
+        audio.src = secondaryStreamUrl;
         audio.playbackRate = effectiveSpeed;
+        audio.volume = 1.0;
+        audio.muted = false;
         audio.play().catch(() => {
           if (!isStopped) {
             onStatusCallback?.('error', 'Audio load error');
@@ -584,8 +522,11 @@ export async function playVoicePreview(
     if (onEndedCallback) onEndedCallback();
   };
 
+  // Start instant playback synchronously in user click stack
   try {
-    audio.src = streamUrl;
+    audio.pause();
+    audio.currentTime = 0;
+    audio.src = primaryStreamUrl;
     audio.playbackRate = effectiveSpeed;
     audio.volume = 1.0;
     audio.muted = false;
@@ -594,10 +535,9 @@ export async function playVoicePreview(
     if (playPromise !== undefined) {
       playPromise.catch((playErr) => {
         if (!isStopped) {
-          // Autoplay retry with direct Google TTS
-          if (!hasTriedFallback) {
-            hasTriedFallback = true;
-            audio.src = directGoogleTtsUrl;
+          if (fallbackAttempt === 0) {
+            fallbackAttempt = 1;
+            audio.src = secondaryStreamUrl;
             audio.play().catch((secErr) => {
               console.warn('Audio play request notice:', secErr || playErr);
               const errorMsg = 'Autoplay restricted. Tap Play button to listen.';

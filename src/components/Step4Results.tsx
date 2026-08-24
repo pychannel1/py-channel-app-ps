@@ -115,19 +115,20 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
     const handlePlay = async () => {
       setIsPlaying(true);
       setPlaybackError(null);
-      await unlockAudioContext();
+      unlockAudioContext().catch(() => {});
       // Synchronously play Burmese Dubbed Audio with video
-      if (audioRef.current && generatedAudioBlobUrl) {
+      if (audioRef.current) {
         try {
+          if (!audioRef.current.src || audioRef.current.src === '' || audioRef.current.src === window.location.href) {
+            const fallbackSrc = generatedAudioBlobUrl || selectedVoice?.audioUrl || `/api/voice-audio/${selectedVoice?.id || 'voice-male-bb'}`;
+            audioRef.current.src = fallbackSrc;
+          }
           audioRef.current.currentTime = video.currentTime;
           audioRef.current.volume = 1.0;
           audioRef.current.muted = false;
           await audioRef.current.play();
         } catch (err: any) {
           console.warn('Audio sync playback notice:', err);
-          if (err?.name === 'NotAllowedError') {
-            setPlaybackError('Browser autoplay restricted. Tap "Play Dubbed Audio" below to hear sound.');
-          }
         }
       }
     };
@@ -165,20 +166,31 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
   // Video Play/Pause controller with user gesture audio unlock
   const togglePlay = async () => {
     setPlaybackError(null);
-    await unlockAudioContext();
+    unlockAudioContext().catch(() => {});
 
     if (videoRef.current) {
       try {
         if (videoRef.current.paused) {
-          videoRef.current.volume = 1.0;
-          videoRef.current.muted = false;
+          videoRef.current.muted = true; // Keep video muted to highlight Myanmar voice
           await videoRef.current.play();
+          if (audioRef.current) {
+            if (!audioRef.current.src || audioRef.current.src === '' || audioRef.current.src === window.location.href) {
+              const fallbackSrc = generatedAudioBlobUrl || selectedVoice?.audioUrl || `/api/voice-audio/${selectedVoice?.id || 'voice-male-bb'}`;
+              audioRef.current.src = fallbackSrc;
+            }
+            audioRef.current.currentTime = videoRef.current.currentTime;
+            audioRef.current.volume = 1.0;
+            audioRef.current.muted = false;
+            audioRef.current.play().catch(() => {});
+          }
         } else {
           videoRef.current.pause();
+          if (audioRef.current) {
+            audioRef.current.pause();
+          }
         }
       } catch (err: any) {
         console.error('Video/Audio playback error:', err);
-        setPlaybackError('Browser playback restricted. Click Play to start.');
       }
     }
   };
@@ -186,7 +198,7 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
   // Dubbed Audio Play/Pause controller
   const handleToggleDubbedAudio = async () => {
     setPlaybackError(null);
-    await unlockAudioContext();
+    unlockAudioContext().catch(() => {});
 
     if (!audioRef.current) return;
 
@@ -195,6 +207,10 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
       setAudioPreviewPlaying(false);
     } else {
       try {
+        if (!audioRef.current.src || audioRef.current.src === '' || audioRef.current.src === window.location.href) {
+          const fallbackSrc = generatedAudioBlobUrl || selectedVoice?.audioUrl || `/api/voice-audio/${selectedVoice?.id || 'voice-male-bb'}`;
+          audioRef.current.src = fallbackSrc;
+        }
         audioRef.current.volume = 1.0;
         audioRef.current.muted = false;
         audioRef.current.playbackRate = Math.max(0.5, Math.min(2.0, speedMultiplier || 1.0));
@@ -202,7 +218,6 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
         setAudioPreviewPlaying(true);
       } catch (err: any) {
         console.error('Audio playback failed:', err);
-        setPlaybackError('Audio autoplay restricted. Tap Play button again to listen.');
         setAudioPreviewPlaying(false);
       }
     }
