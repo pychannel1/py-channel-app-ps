@@ -11,7 +11,7 @@ import {
   AlertCircle,
   Volume2,
 } from 'lucide-react';
-import { generateSRT, downloadFile, unlockAudioContext } from '../utils/audioSynthesis';
+import { generateSRT, downloadFile, unlockAudioContext } from '../services/audioService';
 import { renderMirroredRecapVideo } from '../utils/videoRenderEngine';
 
 interface Step4ResultsProps {

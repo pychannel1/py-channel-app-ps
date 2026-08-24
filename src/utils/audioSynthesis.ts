@@ -93,9 +93,6 @@ export interface GeneratedAudioResult {
   durationSeconds?: number;
 }
 
-export { playMyanmarSpeech, fetchMyanmarTTSAudioBlob, playMyanmarVoiceModel } from '../services/audioService';
-import { playMyanmarVoiceModel } from '../services/audioService';
-
 /**
  * Persist an Audio Blob to the server-side persistent audio store.
  * Returns a stable, shareable URL like '/api/audio-store/aud_...'
@@ -652,8 +649,6 @@ export function generateSRT(segments: TranscriptSegment[]): string {
     })
     .join('\n');
 }
-
-export { playInstantVoicePreview, playRealMyanmarAudio } from './audioPlayer';
 
 /**
  * Format "00:00:02.100" to "00:00:02,100"

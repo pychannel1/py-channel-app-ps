@@ -29,7 +29,7 @@ import { DownloadsModal } from './components/DownloadsModal';
 import { ProfileModal } from './components/ProfileModal';
 import { SupportModal } from './components/SupportModal';
 import { LogoutModal } from './components/LogoutModal';
-import { playVoicePreview, unlockAudioContext, generateBurmeseAudioBlob } from './utils/audioSynthesis';
+import { playVoicePreview, unlockAudioContext, generateBurmeseAudioBlob } from './services/audioService';
 
 function MainStudioApp() {
   const { language, t } = useLanguage();

@@ -28,7 +28,7 @@ import {
 import { AdminConfig, PaymentVerificationRequest, PlanTierId } from '../types';
 import { SYSTEM_PROMPT_PRESETS } from '../data/adminDefaults';
 import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
-import { playVoicePreview } from '../utils/audioSynthesis';
+import { playVoicePreview } from '../services/audioService';
 import { PRICING_PLANS, getPlanById } from '../data/pricingPlans';
 
 interface AdminPortalModalProps {

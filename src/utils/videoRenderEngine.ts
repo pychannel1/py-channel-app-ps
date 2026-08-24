@@ -1,5 +1,5 @@
 import { TranscriptSegment, BurmeseVoiceAvatar } from '../types';
-import { generateBurmeseAudioBlob } from './audioSynthesis';
+import { generateBurmeseAudioBlob } from '../services/audioService';
 
 export interface RenderProgressCallback {
   (progress: number, phase: string): void;

@@ -1,5 +1,15 @@
-import { playVoicePreview, generateBurmeseAudioBlob } from '../utils/audioSynthesis';
+import {
+  playVoicePreview,
+  generateBurmeseAudioBlob,
+  unlockAudioContext,
+  getAudioContext,
+  generateSRT,
+  downloadFile,
+  PlayVoicePreviewOptions,
+  GeneratedAudioResult,
+} from '../utils/audioSynthesis';
 import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
+import { BurmeseVoiceAvatar } from '../types';
 
 declare global {
   interface Window {
@@ -8,11 +18,24 @@ declare global {
 }
 
 /**
+ * Re-export core voice synthesis & preview engine
+ */
+export {
+  playVoicePreview,
+  generateBurmeseAudioBlob,
+  unlockAudioContext,
+  getAudioContext,
+  generateSRT,
+  downloadFile,
+};
+export type { PlayVoicePreviewOptions, GeneratedAudioResult };
+
+/**
  * Direct forwarder to the unified playVoicePreview engine
  */
 export async function playMyanmarVoiceModel(
   text: string,
-  voiceOrGenderOrIndex?: string | number | any,
+  voiceOrGenderOrIndex?: string | number | BurmeseVoiceAvatar | any,
   speed: number = 1.0
 ): Promise<void> {
   const sampleText = text.trim() || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်';
@@ -79,7 +102,58 @@ export async function playMyanmarSpeech(
   });
 }
 
-export { playInstantVoicePreview, playRealMyanmarAudio } from '../utils/audioPlayer';
+/**
+ * Direct forwarder to the unified Admin & User audio preview engine (playVoicePreview)
+ * Zero robotic oscillators, 100% genuine spoken Myanmar speech.
+ */
+export async function playRealMyanmarAudio(
+  text: string,
+  voiceGender: 'male' | 'female' = 'female',
+  speed: number = 1.0,
+  onEnded?: () => void,
+  voiceId?: string
+): Promise<{ stop: () => void }> {
+  let targetVoice = voiceId
+    ? BURMESE_VOICE_AVATARS.find((v) => v.id === voiceId)
+    : BURMESE_VOICE_AVATARS.find((v) => v.gender === voiceGender);
+
+  if (!targetVoice) {
+    targetVoice = BURMESE_VOICE_AVATARS[0];
+  }
+
+  return playVoicePreview({
+    voice: targetVoice,
+    customText: text || targetVoice.samplePhraseBurmese,
+    speedMultiplier: speed,
+    onEnded,
+  });
+}
+
+/**
+ * Instant preview function for Voice Cards and Model Selectors
+ * Uses the exact same Admin playVoicePreview engine.
+ */
+export async function playInstantVoicePreview(
+  voiceIndexOrId: number | string,
+  customText?: string,
+  onEnded?: () => void
+): Promise<{ stop: () => void }> {
+  let targetVoice =
+    typeof voiceIndexOrId === 'number'
+      ? BURMESE_VOICE_AVATARS[voiceIndexOrId % BURMESE_VOICE_AVATARS.length]
+      : BURMESE_VOICE_AVATARS.find((v) => v.id === voiceIndexOrId || v.code.toLowerCase() === voiceIndexOrId.toLowerCase());
+
+  if (!targetVoice) {
+    targetVoice = BURMESE_VOICE_AVATARS[0];
+  }
+
+  return playVoicePreview({
+    voice: targetVoice,
+    customText: customText || targetVoice.samplePhraseBurmese,
+    onEnded,
+  });
+}
+
 
 
 

@@ -1,6 +1,6 @@
 // src/components/VoiceCard.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import { playVoicePreview } from '../utils/audioSynthesis';
+import { playVoicePreview } from '../services/audioService';
 import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
 
 interface VoiceCardProps {
