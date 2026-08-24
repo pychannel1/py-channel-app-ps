@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { TranscriptSegment, BurmeseVoiceAvatar } from '../types';
 import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
 import { normalizeMyanmarForTTS } from '../utils/myanmarTextNormalizer';
+import { playVoicePreview } from '../services/audioService';
 import {
   Copy,
   Check,
@@ -300,27 +301,127 @@ export const Step3MyanmarVoice: React.FC<Step3MyanmarVoiceProps> = ({
   const validLines = parseMyanmarScriptInput(fullScriptInput);
   const activeScriptCount = validLines.length > 0 ? validLines.length : segments.filter((s) => s.myanmarText?.trim()).length;
 
-  const handlePlaySegmentPreview = (segment: TranscriptSegment) => {
-    if (playingSegmentId === segment.id && isPlayingPreview) {
-      onStopVoicePreview();
+  const activeControllerRef = useRef<{ stop: () => void } | null>(null);
+  const [isPlayingDirectPreview, setIsPlayingDirectPreview] = useState(false);
+
+  // Clean up audio on unmount
+  useEffect(() => {
+    return () => {
+      if (activeControllerRef.current) {
+        activeControllerRef.current.stop();
+        activeControllerRef.current = null;
+      }
+    };
+  }, []);
+
+  const stopActiveAudio = () => {
+    if (activeControllerRef.current) {
+      activeControllerRef.current.stop();
+      activeControllerRef.current = null;
+    }
+    if (window.currentAudio) {
+      try {
+        window.currentAudio.pause();
+        window.currentAudio.currentTime = 0;
+      } catch {}
+      window.currentAudio = null;
+    }
+    setIsPlayingDirectPreview(false);
+    setAuditioningVoiceId(null);
+    setPlayingSegmentId(null);
+    onStopVoicePreview();
+  };
+
+  const handlePlaySegmentPreview = async (segment: TranscriptSegment) => {
+    if (playingSegmentId === segment.id && (isPlayingDirectPreview || isPlayingPreview)) {
+      stopActiveAudio();
+      return;
+    }
+
+    stopActiveAudio();
+    setPlayingSegmentId(segment.id);
+    setAuditioningVoiceId(null);
+    setIsPlayingDirectPreview(true);
+
+    const targetText = segment.myanmarText || segment.sourceText || selectedVoice.samplePhraseBurmese;
+    try {
+      const controller = await playVoicePreview({
+        voice: selectedVoice,
+        pitchOffsetHz: pitchOffset,
+        speedMultiplier: speedMultiplier,
+        customText: targetText,
+        onEnded: () => {
+          setIsPlayingDirectPreview(false);
+          setPlayingSegmentId(null);
+          activeControllerRef.current = null;
+        },
+      });
+      activeControllerRef.current = controller;
+    } catch (err) {
+      console.warn('Segment preview error:', err);
+      setIsPlayingDirectPreview(false);
       setPlayingSegmentId(null);
-    } else {
-      setPlayingSegmentId(segment.id);
-      setAuditioningVoiceId(null);
-      onPlayVoicePreview(segment.myanmarText || segment.sourceText, selectedVoice);
     }
   };
 
-  const handleAuditionVoice = (e: React.MouseEvent, voice: BurmeseVoiceAvatar) => {
+  const handleAuditionVoice = async (e: React.MouseEvent, voice: BurmeseVoiceAvatar) => {
     e.stopPropagation();
-    if (auditioningVoiceId === voice.id && isPlayingPreview) {
-      onStopVoicePreview();
+    if (auditioningVoiceId === voice.id && (isPlayingDirectPreview || isPlayingPreview)) {
+      stopActiveAudio();
+      return;
+    }
+
+    stopActiveAudio();
+    setAuditioningVoiceId(voice.id);
+    setPlayingSegmentId(null);
+    setIsPlayingDirectPreview(true);
+    onSelectVoice(voice.id);
+
+    try {
+      const controller = await playVoicePreview({
+        voice,
+        pitchOffsetHz: pitchOffset,
+        speedMultiplier: speedMultiplier,
+        customText: voice.samplePhraseBurmese,
+        onEnded: () => {
+          setIsPlayingDirectPreview(false);
+          setAuditioningVoiceId(null);
+          activeControllerRef.current = null;
+        },
+      });
+      activeControllerRef.current = controller;
+    } catch (err) {
+      console.warn('Voice audition error:', err);
+      setIsPlayingDirectPreview(false);
       setAuditioningVoiceId(null);
-    } else {
-      setAuditioningVoiceId(voice.id);
-      setPlayingSegmentId(null);
-      onSelectVoice(voice.id);
-      onPlayVoicePreview(voice.samplePhraseBurmese, voice);
+    }
+  };
+
+  const handleToggleMainPreview = async () => {
+    if (isPlayingDirectPreview || isPlayingPreview) {
+      stopActiveAudio();
+      return;
+    }
+
+    stopActiveAudio();
+    setIsPlayingDirectPreview(true);
+
+    const firstSegmentText = segments[0]?.myanmarText?.trim() || selectedVoice.samplePhraseBurmese;
+    try {
+      const controller = await playVoicePreview({
+        voice: selectedVoice,
+        pitchOffsetHz: pitchOffset,
+        speedMultiplier: speedMultiplier,
+        customText: firstSegmentText,
+        onEnded: () => {
+          setIsPlayingDirectPreview(false);
+          activeControllerRef.current = null;
+        },
+      });
+      activeControllerRef.current = controller;
+    } catch (err) {
+      console.warn('Main preview error:', err);
+      setIsPlayingDirectPreview(false);
     }
   };
 
@@ -854,14 +955,14 @@ export const Step3MyanmarVoice: React.FC<Step3MyanmarVoiceProps> = ({
             <button
               id="voice-preview-btn"
               type="button"
-              onClick={isPlayingPreview ? onStopVoicePreview : () => onPlayVoicePreview()}
+              onClick={handleToggleMainPreview}
               className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer flex-shrink-0 shadow-lg ${
-                isPlayingPreview && !playingSegmentId
+                (isPlayingDirectPreview || isPlayingPreview) && !playingSegmentId && !auditioningVoiceId
                   ? 'bg-red-600 hover:bg-red-500 text-white animate-pulse'
                   : 'bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 text-white border border-purple-400/40 shadow-purple-600/30'
               }`}
             >
-              {isPlayingPreview && !playingSegmentId ? (
+              {(isPlayingDirectPreview || isPlayingPreview) && !playingSegmentId && !auditioningVoiceId ? (
                 <>
                   <Square className="w-4 h-4 fill-current" />
                   <span>ရပ်တန့်မည်</span>

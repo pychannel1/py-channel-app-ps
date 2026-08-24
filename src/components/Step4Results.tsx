@@ -689,6 +689,18 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Hidden Audio Element for Synchronized Myanmar Dubbing */}
+      <audio
+        ref={audioRef}
+        id="dubbed-burmese-audio-element"
+        src={generatedAudioBlobUrl || selectedVoice?.audioUrl || `/api/voice-audio/${selectedVoice?.id || 'voice-male-bb'}`}
+        crossOrigin="anonymous"
+        preload="auto"
+        onEnded={() => setAudioPreviewPlaying(false)}
+        onError={(e) => console.warn('Dubbed audio element notice:', e)}
+        className="hidden"
+      />
     </div>
   );
 };
