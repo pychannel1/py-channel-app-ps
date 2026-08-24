@@ -46,7 +46,7 @@ export const VoiceCard: React.FC<VoiceCardProps> = ({
     }
 
     setIsPlaying(true);
-    const controller = await playInstantVoicePreview(index, sampleText, () => {
+    const controller = await playInstantVoicePreview(id || index, sampleText, () => {
       setIsPlaying(false);
       controllerRef.current = null;
     });

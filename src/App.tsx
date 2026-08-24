@@ -524,8 +524,8 @@ function MainStudioApp() {
 
     playVoicePreview({
       voice: targetVoice,
-      pitchOffsetHz: pitchOffset || adminConfig.globalPitchHz,
-      speedMultiplier: speedMultiplier || adminConfig.globalSpeed,
+      pitchOffsetHz: typeof pitchOffset === 'number' ? pitchOffset : adminConfig.globalPitchHz,
+      speedMultiplier: typeof speedMultiplier === 'number' && speedMultiplier > 0 ? speedMultiplier : adminConfig.globalSpeed,
       customText: targetText,
       onEnded: () => {
         setIsPlayingVoicePreview(false);
@@ -581,8 +581,8 @@ function MainStudioApp() {
       const audioResult = await generateBurmeseAudioBlob({
         text: fullBurmeseText || selectedVoice.samplePhraseBurmese,
         voice: selectedVoice,
-        pitchOffsetHz: pitchOffset || adminConfig.globalPitchHz,
-        speedMultiplier: speedMultiplier || adminConfig.globalSpeed,
+        pitchOffsetHz: typeof pitchOffset === 'number' ? pitchOffset : adminConfig.globalPitchHz,
+        speedMultiplier: typeof speedMultiplier === 'number' && speedMultiplier > 0 ? speedMultiplier : adminConfig.globalSpeed,
       });
 
       // Strict Audio Validation (Requirement F)

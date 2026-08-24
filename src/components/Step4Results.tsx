@@ -530,6 +530,7 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
             <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/70 border border-white/5">
               <button
                 id="dubbed-audio-preview-toggle-btn"
+                type="button"
                 onClick={handleToggleDubbedAudio}
                 className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all cursor-pointer ${
                   audioPreviewPlaying
@@ -569,18 +570,14 @@ export const Step4Results: React.FC<Step4ResultsProps> = ({
               </div>
             </div>
 
-            {/* Native HTML5 Audio Controls for maximum mobile accessibility */}
-            {generatedAudioBlobUrl && (
-              <div className="pt-1">
-                <audio
-                  controls
-                  playsInline
-                  preload="auto"
-                  src={generatedAudioBlobUrl}
-                  className="w-full h-8 opacity-80 hover:opacity-100 transition-opacity"
-                />
-              </div>
-            )}
+            {/* Direct Playback Status & Time Indicator */}
+            <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 px-1">
+              <span className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${audioPreviewPlaying ? 'bg-emerald-400 animate-ping' : 'bg-slate-600'}`} />
+                <span>{audioPreviewPlaying ? 'Audio Playing' : 'Ready'}</span>
+              </span>
+              <span>{formatSeconds(currentTime)} / {formatSeconds(duration || 0)}</span>
+            </div>
           </div>
         </div>
 

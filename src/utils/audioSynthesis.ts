@@ -548,11 +548,11 @@ export async function playVoicePreview(
   currentActiveAudio = audio;
   window.currentAudio = audio;
 
-  const directCdnUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(
-    sampleText.substring(0, 250)
-  )}&le=my`;
+  const directGoogleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
+    sampleText.substring(0, 180)
+  )}&tl=my&client=tw-ob&total=1&idx=0&textlen=${sampleText.substring(0, 180).length}`;
 
-  let hasTriedCdnFallback = false;
+  let hasTriedFallback = false;
 
   audio.onplay = () => {
     onStatusCallback?.('playing', null);
@@ -571,10 +571,10 @@ export async function playVoicePreview(
 
   audio.onerror = () => {
     if (isStopped) return;
-    if (!hasTriedCdnFallback) {
-      hasTriedCdnFallback = true;
+    if (!hasTriedFallback) {
+      hasTriedFallback = true;
       try {
-        audio.src = directCdnUrl;
+        audio.src = directGoogleTtsUrl;
         audio.playbackRate = effectiveSpeed;
         audio.play().catch(() => {
           if (!isStopped) {
@@ -601,10 +601,10 @@ export async function playVoicePreview(
     if (playPromise !== undefined) {
       playPromise.catch((playErr) => {
         if (!isStopped) {
-          // Autoplay retry with direct CDN
-          if (!hasTriedCdnFallback) {
-            hasTriedCdnFallback = true;
-            audio.src = directCdnUrl;
+          // Autoplay retry with direct Google TTS
+          if (!hasTriedFallback) {
+            hasTriedFallback = true;
+            audio.src = directGoogleTtsUrl;
             audio.play().catch((secErr) => {
               console.warn('Audio play request notice:', secErr || playErr);
               const errorMsg = 'Autoplay restricted. Tap Play button to listen.';
