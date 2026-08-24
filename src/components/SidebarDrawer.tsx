@@ -18,6 +18,7 @@ import {
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageToggle } from './LanguageToggle';
 import { VipSubscriptionInfo } from '../types';
+import { isAdminUser } from '../services/authService';
 
 export type SidebarNavItem =
   | 'studio'
@@ -251,8 +252,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             );
           })}
 
-          {/* Admin Master Portal Link (If authenticated) */}
-          {isAdminAuthenticated && (
+          {/* Admin Master Portal Link (Strictly for Admin only) */}
+          {isAdminUser(userEmail, isAdminAuthenticated) && (
             <div className="pt-2">
               <button
                 type="button"

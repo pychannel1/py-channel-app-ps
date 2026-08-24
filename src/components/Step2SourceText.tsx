@@ -112,23 +112,31 @@ export const Step2SourceText: React.FC<Step2SourceTextProps> = ({
     }
   };
 
-  // Generate full prompt tailored for copy-paste into Gemini App
+  // Generate full prompt tailored for copy-paste into Gemini App with strict professional translation instructions
   const generateGeminiAppPrompt = () => {
     const lines = segments
       .map((s, i) => `[Segment ${i + 1}] (${s.start} - ${s.end})\nSource: ${s.sourceText}`)
       .join('\n\n');
 
     return `SYSTEM INSTRUCTION:
-You are an expert Burmese (Myanmar) Movie Recap Scriptwriter & Voiceover Narrator for "pY Channel".
-Translate and adapt the following original movie transcript segments into natural SPOKEN BURMESE (စကားပြော ဇာတ်ကြောင်းပြော စတိုင်) in standard Myanmar Unicode.
+You are a professional translator and script recap expert for Myanmar. Translate accurately, maintain natural phrasing, and do NOT hallucinate or alter the core narrative.
 
-CRITICAL VOICE-OVER RULES:
-1. Pure Spoken Burmese: Use spoken verb endings like "တယ်", "ပါတယ်", "သွားတယ်", "ဖြစ်သွားတယ်", "လိုက်တယ်", "နေတယ်", "ပေါ့နော်". NEVER use formal archaic "သည်", "ပေသည်", "သတည်း", "လျက်", "၌".
-2. Prosodic Respiration Punctuation: Use commas (၊) for short 80ms breathing pauses and full stops (။) for 180ms cadence stops.
-3. Engaging Recap Hooks: Use phrases like "ဒီတစ်ခါမှာတော့...", "အဲဒီအချိန်မှာပဲ...", "ရုတ်တရက်...", "ဒီလိုနဲ့ပဲ...".
+CRITICAL TRANSLATION & RECAP DIRECTIVES:
+1. ACCURATE SENTENCE-BY-SENTENCE TRANSLATION:
+   - Translate sentence by sentence or segment by segment without skipping, hallucinating, or altering the original story narrative.
+   - Maintain absolute factual fidelity to the source movie plot, character actions, and dialogues.
 
-REQUIRED JSON OUTPUT FORMAT:
-Return ONLY a valid JSON object strictly matching this format:
+2. PURE SPOKEN BURMESE ONLY (စကားပြော ဇာတ်ကြောင်းပြောဟန်):
+   - ALWAYS write in fluent, captivating conversational Burmese suitable for neural voiceover narration.
+   - Use spoken verb endings and particles: "တယ်", "ပါတယ်", "သွားတယ်", "ဖြစ်သွားတယ်", "လိုက်တယ်", "နေတယ်", "ရတော့မယ်", "ပေါ့နော်", "ဗျာ", "ရှင့်".
+   - STRICTLY FORBIDDEN: Do NOT use archaic formal written grammar (e.g. NEVER use "သည်", "ပေသည်", "သတည်း", "လျက်", "ရာတွင်", "၌", "၏").
+
+3. PROSODIC PACING & BREATHING MARKS:
+   - Insert natural pauses using Burmese comma (၊) for short 80-100ms respiration pauses and full stop (။) for 150-200ms sentence cadence.
+   - Use dramatic recap hooks: "ဒီတစ်ခါမှာတော့...", "အဲဒီအချိန်မှာပဲ...", "ရုတ်တရက်...", "မထင်မှတ်ထားဘဲ...", "ဒီလိုနဲ့ပဲ...".
+
+4. REQUIRED JSON OUTPUT FORMAT:
+Return ONLY a valid JSON object strictly matching this schema with exact segment IDs or sequential list:
 {
   "translations": [
 ${segments.map((_, i) => `    "Segment ${i + 1} သဘာဝကျသော စကားပြော ဇာတ်လမ်းရီကပ် စာသား..."`).join(',\n')}
@@ -138,6 +146,17 @@ ${segments.map((_, i) => `    "Segment ${i + 1} သဘာဝကျသော စ�
 TRANSCRIPT SEGMENTS TO TRANSLATE:
 ${lines}
 `;
+  };
+
+  const handleOpenGeminiAppDirectly = () => {
+    const promptText = generateGeminiAppPrompt();
+    navigator.clipboard.writeText(promptText);
+    setCopiedPrompt(true);
+    setTimeout(() => setCopiedPrompt(false), 3000);
+    // Open Gemini Web App in new tab
+    window.open('https://gemini.google.com/app', '_blank', 'noopener,noreferrer');
+    // Open the JSON Import modal in the studio
+    onOpenModal();
   };
 
   const handleCopyPrompt = () => {
@@ -321,16 +340,20 @@ ${lines}
 
                   <button
                     id="gemini-app-path-btn"
-                    onClick={() => {
-                      handleCopyPrompt();
-                      onOpenModal();
-                    }}
-                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-purple-700 via-indigo-600 to-purple-800 hover:from-purple-600 hover:to-indigo-500 text-white font-bold text-xs tracking-wide shadow-lg shadow-purple-600/30 border border-purple-400/40 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.98]"
+                    onClick={handleOpenGeminiAppDirectly}
+                    className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-purple-700 via-indigo-600 to-purple-800 hover:from-purple-600 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm tracking-wide shadow-lg shadow-purple-600/30 border border-purple-400/40 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.98] group"
                   >
-                    <ExternalLink className="w-4 h-4 text-purple-200" />
-                    <span>Gemini App မှ တစ်ဆင့် ဘာသာပြန်မည်</span>
+                    <ExternalLink className="w-4 h-4 text-purple-200 group-hover:scale-110 transition-transform" />
+                    <span>Gemini App မှ တဆင့်ဘာသာပြန်မည် (Auto-Copy & Open)</span>
                     <ArrowRight className="w-3.5 h-3.5 text-purple-300" />
                   </button>
+
+                  {copiedPrompt && (
+                    <div className="p-2.5 rounded-lg bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[11px] font-burmese flex items-center justify-center gap-1.5 animate-fadeIn">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Prompt စာသားကို Auto-Copy ကူးယူပြီးပါပြီ။ Gemini App တွင် Paste (Ctrl+V) ချ၍ မေးမြန်းနိုင်ပါသည်။</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Button 2 (အောက်ဆုံး): Gemini API Key ဖြင့် ဆက်သွားမည် & Dedicated Input Box */}
@@ -489,19 +512,30 @@ ${lines}
 
             {/* Step A: Copy Pre-formatted Prompt */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
                   <span>၁။ Gemini App သို့ ပေးပို့ရမည့် Prompt</span>
                 </label>
-                <button
-                  id="modal-copy-prompt-btn"
-                  type="button"
-                  onClick={handleCopyPrompt}
-                  className="px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                >
-                  {copiedPrompt ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedPrompt ? 'Copied to Clipboard!' : 'Copy Prompt'}</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    id="modal-open-gemini-web-btn"
+                    type="button"
+                    onClick={handleOpenGeminiAppDirectly}
+                    className="px-3 py-1 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Gemini App ဖွင့်မည် (Auto-Copy)</span>
+                  </button>
+                  <button
+                    id="modal-copy-prompt-btn"
+                    type="button"
+                    onClick={handleCopyPrompt}
+                    className="px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedPrompt ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedPrompt ? 'Copied!' : 'Copy Prompt'}</span>
+                  </button>
+                </div>
               </div>
 
               <div className="relative">

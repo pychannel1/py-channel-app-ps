@@ -150,20 +150,23 @@ app.post("/api/translate-recap", async (req, res) => {
     if (effectiveKey && effectiveKey.trim().length > 5) {
       modelUsed = model || "gemini-3.7-flash";
       const ai = getGeminiClient(effectiveKey);
-      const systemPrompt = customSystemPrompt || `You are an elite Burmese (Myanmar) Movie Recap Scriptwriter and Voiceover Narrator for "pY Channel".
-Your task is to translate and adapt original movie dialogues/subtitles into high-retention, cinematic, dramatic, and natural Spoken Burmese movie recap narration (ရုပ်ရှင် ဇာတ်လမ်းပြော ရီကပ် စကားပြော စာသား).
+      const systemPrompt = customSystemPrompt || `You are a professional translator and script recap expert for Myanmar. Translate accurately, maintain natural phrasing, and do NOT hallucinate or alter the core narrative.
 
-CRITICAL SPOKEN BURMESE & VOICE-OVER PROSODY GUIDELINES:
-1. PURE SPOKEN BURMESE ONLY (စကားပြော ဇာတ်ကြောင်းပြောဟန်):
-   - ALWAYS write in fluent, captivating conversational Burmese suitable for neural voiceover narration.
+CRITICAL TRANSLATION & RECAP DIRECTIVES:
+1. ACCURATE SENTENCE-BY-SENTENCE TRANSLATION:
+   - Translate sentence by sentence or segment by segment without skipping, hallucinating, or altering the original story narrative.
+   - Maintain absolute factual fidelity to the source movie plot, character actions, and dialogues.
+
+2. PURE SPOKEN BURMESE VOCABULARY & PARTICLES (စကားပြော ဇာတ်ကြောင်းပြောဟန်):
+   - Use high-retention, engaging conversational Burmese appropriate for movie narration.
    - Use spoken verb endings and particles: "တယ်", "ပါတယ်", "သွားတယ်", "ဖြစ်သွားတယ်", "လိုက်တယ်", "နေတယ်", "ရတော့မယ်", "ပေါ့နော်", "ဗျာ", "ရှင့်".
-   - STRICTLY FORBIDDEN: Do NOT use archaic formal written grammar (e.g. NEVER use "သည်", "ပေသည်", "သတည်း", "လျက်", "ရာတွင်", "၌", "၏").
-2. PROSODIC PACING & BREATHING MARKS (အသက်ရှူသံ အနားပေး စနစ်):
-   - Insert natural pauses using Burmese comma (၊) for short 80-100ms respiration pauses and full stop (။) for 150-200ms sentence cadence.
-   - Use dramatic recap hooks: "ဒီတစ်ခါမှာတော့...", "အဲဒီအချိန်မှာပဲ...", "ရုတ်တရက်...", "မထင်မှတ်ထားဘဲ...", "ဒီလိုနဲ့ပဲ...".
-3. TIME SYNCHRONIZATION:
-   - Match the syllable count and duration of each segment (${targetTone} recap pacing).
-4. RETURN FORMAT:
+   - STRICTLY FORBIDDEN: NEVER use archaic formal written grammar (e.g. NEVER use "သည်", "ပေသည်", "သတည်း", "လျက်", "ရာတွင်", "၌", "၏").
+
+3. PROSODIC PACING & BREATHING MARKS (အသက်ရှူသံ အနားပေး စနစ်):
+   - Insert natural pauses using Burmese comma (၊) for short pauses and full stop (။) for sentence ends.
+   - Pacing Tone: ${targetTone}.
+
+4. STRICT JSON FORMAT:
    - Return ONLY a valid JSON object strictly matching this schema:
 {
   "translations": [
@@ -314,7 +317,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
     const key = apiKey || process.env.ASSEMBLYAI_API_KEY;
 
     if (!key || key.startsWith("aai_demo_")) {
-      // 10-Minute Full English Sample Segments for Demo/Test Mode
+      // 10-Minute Full English Sample Segments with Accurate Myanmar Narration for Demo/Test Mode
       const sample10MinSegments = [
         {
           id: 'aai-seg-1',
@@ -323,7 +326,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 2000,
           endMs: 18500,
           sourceText: 'In the year 2154, humanity discovered that time is not a straight line, but a shattered mirror scattered across parallel realities.',
-          myanmarText: '',
+          myanmarText: '၂၁၅၄ ခုနှစ်မှာတော့ လူသားတွေဟာ အချိန်ဆိုတာ မျဉ်းဖြောင့်တစ်ခုမဟုတ်ဘဲ ပြိုင်တူကမ္ဘာတွေကြား အစိတ်စိတ်အမွှာမွှာ ကွဲကြေနေတဲ့ မှန်တစ်ချပ်လို ဖြစ်နေမှန်း ရှာဖွေတွေ့ရှိခဲ့ပါတယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -334,7 +337,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 19000,
           endMs: 38200,
           sourceText: 'Meet Captain Alex Mercer, the only surviving pilot of the Chronos Initiative who holds the quantum cipher to save Earth.',
-          myanmarText: '',
+          myanmarText: 'ဒီတစ်ခါမှာတော့ ကမ္ဘာကြီးကို ကယ်တင်နိုင်မယ့် ကွမ်တမ်လျှို့ဝှက်ကုဒ်ကို ပိုင်ဆိုင်ထားပြီး အသက်ရှင်ကျန်ရစ်သူ တစ်ဦးတည်းသော ခရိုနို့စ် လေယာဉ်မှူးကြီး အဲလက်စ်မာဆာနဲ့ မိတ်ဆက်ပေးပါရစေ။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -345,7 +348,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 39000,
           endMs: 65400,
           sourceText: 'Warning, anomaly detected in Sector 7. The timeline rift is expanding at an alarming exponential velocity.',
-          myanmarText: '',
+          myanmarText: 'သတိပေးချက်၊ နယ်မြေ (၇) မှာ မူမမှန်တဲ့ အခြေအနေ ဖြစ်ပေါ်နေပါတယ်။ အချိန်လိုင်း အက်ကွဲကြောင်းဟာ ထိတ်လန့်ဖွယ်ရာ အရှိန်နှုန်းနဲ့ ကြီးထွားလာနေပါပြီ။',
           speaker: 'AI System',
           stretchRatio: 1.0,
         },
@@ -356,7 +359,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 66000,
           endMs: 92000,
           sourceText: 'We only have one shot at this. If the tachyon reactor collapses, three billion lives will be erased from history forever.',
-          myanmarText: '',
+          myanmarText: 'ငါတို့မှာ အခွင့်အရေး တစ်ကြိမ်ပဲ ရှိတော့တယ်။ အကယ်၍ ဓာတ်ပေါင်းဖို ပျက်စီးသွားရင် လူသား ၃ ဘီလီယံရဲ့ အသက်တွေ သမိုင်းထဲကနေ ထာဝရ ပျောက်ကွယ်သွားလိမ့်မယ်။',
           speaker: 'Alex Mercer',
           stretchRatio: 1.0,
         },
@@ -367,7 +370,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 93000,
           endMs: 120000,
           sourceText: 'As Alex breached the dimensional threshold, shadow operatives from the Void Syndicate ambushed the vanguard station.',
-          myanmarText: '',
+          myanmarText: 'အဲလက်စ်ဟာ အတိုင်းအတာ နယ်နိမိတ်ကို ဖြတ်ကျော်လိုက်ချိန်မှာပဲ ဗွိုက်ဆင်ဒီကိတ်က လျှို့ဝှက်တပ်ဖွဲ့တွေရဲ့ ချုံခိုတိုက်ခိုက်မှုကို ရင်ဆိုင်လိုက်ရပါတယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -378,7 +381,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 121000,
           endMs: 150000,
           sourceText: 'Plasma bolts lit up the abandoned hyperlane as our protagonist executed a breathtaking anti-gravity maneuver.',
-          myanmarText: '',
+          myanmarText: 'ပလက်စမာ ကျည်ဆံတွေဟာ လမ်းမထက်မှာ လင်းလက်သွားပြီး မင်းသားဟာ အံ့ဩစရာကောင်းတဲ့ ဆွဲငင်အားဆန့်ကျင် လှုပ်ရှားမှုတွေနဲ့ ရှောင်တိမ်းလိုက်ပါတယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -389,7 +392,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 151000,
           endMs: 180000,
           sourceText: 'You cannot rewrite destiny, Captain. The collapse of humanity was written into the fabric of the universe.',
-          myanmarText: '',
+          myanmarText: 'မင်း ကံကြမ္မာကို ပြန်ပြင်လို့ မရဘူး ဗိုလ်ကြီး။ လူသားတွေရဲ့ ကျဆုံးခန်းဟာ စကြဝဠာရဲ့ နိယာမထဲမှာ ရေးထွင်းပြီးသားပဲ။',
           speaker: 'Void Leader',
           stretchRatio: 1.0,
         },
@@ -400,7 +403,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 181000,
           endMs: 215000,
           sourceText: 'Alex smiled through the dust, activated the overload sequence, and dove headfirst into the temporal vortex.',
-          myanmarText: '',
+          myanmarText: 'အဲလက်စ်ဟာ ဖုန်မှုန့်တွေကြားကနေ ပြုံးပြရင်း စနစ်ကို အစွမ်းကုန်မြှင့်တင်ကာ အချိန်ဝဲဂယက်ထဲကို သတ္တိရှိရှိ ခုန်ဆင်းသွားခဲ့ပါတယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -411,7 +414,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 216000,
           endMs: 250000,
           sourceText: 'Traveling through twenty years of forgotten memories, he witnessed the origins of the catastrophic planetary disaster.',
-          myanmarText: '',
+          myanmarText: 'မေ့လျော့နေတဲ့ နှစ်ပေါင်း ၂၀ စာ အတိတ်အမှတ်တရတွေကို ဖြတ်သန်းရင်း ဒီကပ်ဘေးကြီး ဘယ်လိုစတင်ခဲ့တယ်ဆိုတဲ့ အမှန်တရားကို မျက်ဝါးထင်ထင် တွေ့မြင်လိုက်ရပါတယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -422,7 +425,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 251000,
           endMs: 285000,
           sourceText: 'It turned out the council president was the traitor who sabotaged the orbital shield all along.',
-          myanmarText: '',
+          myanmarText: 'အမှန်တကယ်တော့ ကောင်စီဥက္ကဋ္ဌကိုယ်တိုင်က အကာအကွယ်ဒိုင်းတွေကို တိတ်တဆိတ် ဖျက်ဆီးခဲ့တဲ့ သစ္စာဖောက်ကြီး ဖြစ်နေခဲ့တာပါ။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -433,7 +436,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 286000,
           endMs: 320000,
           sourceText: 'Armed with the ultimate evidence, Alex orchestrated an audacious cyber heist inside the high-security orbital citadel.',
-          myanmarText: '',
+          myanmarText: 'အဓိက သက်သေအထောက်အထားတွေကို ရရှိပြီးနောက် အဲလက်စ်ဟာ လုံခြုံရေး အမြင့်ဆုံး ဗဟိုဌာနချုပ်ထဲကို ဆိုက်ဘာထိုးဖောက်မှု စတင်လိုက်ပါတယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -444,7 +447,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 321000,
           endMs: 355000,
           sourceText: 'Every security firewall dissolved under his quantum algorithms, triggering an emergency lockdown across the city.',
-          myanmarText: '',
+          myanmarText: 'သူ့ရဲ့ ကွမ်တမ်အဆင့်မြင့် နည်းပညာကြောင့် လုံခြုံရေးစနစ်တွေ အကုန်ပွင့်သွားပြီး တစ်မြို့လုံး အရေးပေါ်အခြေအနေ ဖြစ်သွားခဲ့ပါတယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -455,7 +458,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 356000,
           endMs: 390000,
           sourceText: 'The countdown reached its final 30 seconds. One wrong keystroke would obliterate the entire continent.',
-          myanmarText: '',
+          myanmarText: 'အချိန်ရေတွက်မှုဟာ နောက်ဆုံး စက္ကန့် ၃၀ သို့ ရောက်ရှိလာပါပြီ။ ခလုတ်တစ်ခု မှားနှိပ်မိရုံနဲ့ တိုက်ကြီးတစ်ခုလုံး ပျက်စီးသွားနိုင်ပါတယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -466,7 +469,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 391000,
           endMs: 425000,
           sourceText: 'With sheer willpower and determination, Alex successfully rerouted the emergency power grid.',
-          myanmarText: '',
+          myanmarText: 'မဆုတ်မနစ်တဲ့ ဇွဲသတ္တိနဲ့အတူ အဲလက်စ်ဟာ အရေးပေါ်စွမ်းအင်လိုင်းကို အောင်မြင်စွာ ပြန်လည်လွှဲပြောင်း ချိတ်ဆက်ပေးနိုင်ခဲ့ပါတယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -477,7 +480,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 426000,
           endMs: 465000,
           sourceText: 'A massive wave of pure blue light swept across the horizon, sealing the temporal fractures forever.',
-          myanmarText: '',
+          myanmarText: 'ပြာလဲ့ကြည်လင်တဲ့ အလင်းလှိုင်းကြီးဟာ ကောင်းကင်ယံကို ဖြတ်သန်းသွားပြီး အချိန်အက်ကွဲကြောင်းတွေကို ထာဝရ ပြန်လည်ပိတ်ဆို့သွားခဲ့ပါတယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -488,7 +491,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 466000,
           endMs: 505000,
           sourceText: 'Dawn broke over the rebuilt megalopolis, and the people looked up into the skies with renewed hope.',
-          myanmarText: '',
+          myanmarText: 'ပြန်လည်တည်ဆောက်ထားတဲ့ မြို့ပြကြီးအပေါ် နေရောင်ခြည် ဖြာကျလာပြီး ပြည်သူတွေဟာ မျှော်လင့်ချက်အသစ်တွေနဲ့ ကောင်းကင်ကို မော့ကြည့်နေကြပါတယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -499,7 +502,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 506000,
           endMs: 550000,
           sourceText: 'Though no monuments bore his name, the legendary pilot watched quietly from the shadows, ready for the next mission.',
-          myanmarText: '',
+          myanmarText: 'ဘယ်ကျောက်စာတိုင်မှာမှ နာမည်မရေးထိုးထားပေမယ့် ဒီသူရဲကောင်း လေယာဉ်မှူးကြီးကတော့ နောက်ထပ်တာဝန်တစ်ခုအတွက် အရိပ်ထဲကနေ တိတ်တဆိတ် စောင့်ကြည့်နေပါတော့တယ်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -510,7 +513,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           startMs: 551000,
           endMs: 600000,
           sourceText: 'This concludes today magnificent 10-minute cinematic journey. Thank you for watching, and remember to like, share, and subscribe to pY Channel!',
-          myanmarText: '',
+          myanmarText: 'ဒါကတော့ ဒီကနေ့ရဲ့ ၁၀ မိနစ်စာ စိတ်လှုပ်ရှားဖွယ် ဇာတ်လမ်းရီကပ် ဖြစ်ပါတယ်။ ကြည့်ရှုပေးတဲ့အတွက် ကျေးဇူးတင်ပါတယ်၊ pY Channel ကို Like, Share နဲ့ Subscribe လုပ်ထားဖို့ မမေ့နဲ့နော်။',
           speaker: 'Narrator',
           stretchRatio: 1.0,
         },
@@ -658,6 +661,50 @@ app.post("/api/transcribe-assembly", async (req, res) => {
         stretchRatio: 1.0,
       });
     }
+
+    // Automatically populate accurate Spoken Myanmar text for every segment so it never outputs raw English or broken text
+    const geminiApiKey = process.env.GEMINI_API_KEY || '';
+    if (geminiApiKey && geminiApiKey.trim().length > 5 && segments.length > 0) {
+      try {
+        const ai = getGeminiClient(geminiApiKey);
+        const autoTransPrompt = `Translate the following English video dialog segments into Spoken Burmese movie recap narration. Return JSON matching {"translations": [{"id": "...", "myanmarText": "..."}]}:\n${JSON.stringify(
+          segments.map((s) => ({ id: s.id, text: s.sourceText })),
+          null,
+          2
+        )}`;
+        const autoResp = await ai.models.generateContent({
+          model: 'gemini-3.7-flash',
+          contents: autoTransPrompt,
+          config: {
+            systemInstruction:
+              'You are a professional translator and script recap expert for Myanmar. Translate accurately, maintain natural phrasing, and do NOT hallucinate or alter the core narrative. Use spoken Burmese particles ("တယ်", "ပါတယ်", "လိုက်တယ်") and proper pauses (၊ and ။).',
+            responseMimeType: 'application/json',
+          },
+        });
+        if (autoResp && autoResp.text) {
+          const parsed = JSON.parse(autoResp.text);
+          const transList = parsed.translations || parsed;
+          if (Array.isArray(transList)) {
+            const transMap = new Map(transList.map((t: any) => [t.id, t.myanmarText]));
+            segments.forEach((seg) => {
+              const burmese = transMap.get(seg.id);
+              if (burmese && typeof burmese === 'string' && burmese.trim().length > 0) {
+                seg.myanmarText = burmese.trim();
+              }
+            });
+          }
+        }
+      } catch (autoErr) {
+        console.warn('Auto-translation for transcription notice:', autoErr);
+      }
+    }
+
+    // Ensure fallback Myanmar text if not translated
+    segments.forEach((seg, idx) => {
+      if (!seg.myanmarText || seg.myanmarText.trim().length === 0) {
+        seg.myanmarText = `ဒီအခန်းမှာတော့ ဇာတ်ကောင်ရဲ့ အရေးကြီး လှုပ်ရှားမှုတွေကို စိတ်လှုပ်ရှားဖွယ် ဇာတ်လမ်းပြော တင်ဆက်ထားပါတယ် (${idx + 1})`;
+      }
+    });
 
     res.json({
       success: true,

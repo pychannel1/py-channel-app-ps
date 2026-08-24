@@ -17,6 +17,7 @@ import {
 import { StudioMode, VipSubscriptionInfo } from '../types';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageToggle } from './LanguageToggle';
+import { isAdminUser } from '../services/authService';
 
 interface HeaderProps {
   mode: StudioMode;
@@ -137,7 +138,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <span className="hidden xs:inline-block text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500/20 to-indigo-500/20 border border-amber-500/30 text-amber-300 font-mono font-medium">
                     AI RECAP
                   </span>
-                  {isAdminAuthenticated && (
+                  {isAdminUser(userEmail, isAdminAuthenticated) && (
                     <span className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500 text-black font-bold font-mono">
                       ADMIN
                     </span>
@@ -198,8 +199,8 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="sm:hidden font-mono font-bold text-amber-400">VIP</span>
           </button>
 
-          {/* Admin Direct Access Button (If Logged In) */}
-          {isAdminAuthenticated && (
+          {/* Admin Direct Access Button (Only for Admin) */}
+          {isAdminUser(userEmail, isAdminAuthenticated) && (
             <button
               onClick={onOpenAdminPortal}
               className="hidden lg:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 hover:bg-amber-500/30 font-bold transition-all cursor-pointer"
@@ -345,17 +346,19 @@ export const Header: React.FC<HeaderProps> = ({
                     </button>
                   )}
 
-                  {/* Admin Portal */}
-                  <button
-                    onClick={() => {
-                      setIsProfileDropdownOpen(false);
-                      onOpenAdminPortal();
-                    }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 rounded-xl transition-all text-left cursor-pointer"
-                  >
-                    <KeyRound className="w-4 h-4 text-amber-400" />
-                    <span>{t.adminPortal}</span>
-                  </button>
+                  {/* Admin Portal (Strictly for Admin only) */}
+                  {isAdminUser(userEmail, isAdminAuthenticated) && (
+                    <button
+                      onClick={() => {
+                        setIsProfileDropdownOpen(false);
+                        onOpenAdminPortal();
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 rounded-xl transition-all text-left cursor-pointer"
+                    >
+                      <KeyRound className="w-4 h-4 text-amber-400" />
+                      <span>{t.adminPortal}</span>
+                    </button>
+                  )}
 
                   {/* Logout */}
                   {onLogout && (
