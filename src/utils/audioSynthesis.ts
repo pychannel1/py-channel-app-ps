@@ -383,8 +383,8 @@ async function playAudioBufferWithWebAudio(
 
 /**
  * Authentic Natural Myanmar Speech Synthesis Engine for previewing all 40 voice models on mobile/desktop
- * - Uses Direct HTML5 Streaming Audio & Web Audio API for 0ms lag, zero stutter, and zero browser blocking.
- * - Supports both object signature ({ voice, pitchOffsetHz, speedMultiplier, customText, onEnded, onError })
+ * - Uses Web Audio API (decodeAudioData) + Direct HTML5 Streaming Audio for 0ms lag, zero stutter, and zero browser/iframe blocking.
+ * - Supports both object signature ({ voice, pitchOffsetHz, speedMultiplier, customText, onEnded, onError, onStart, onStatusChange })
  *   and positional signature (text, voiceId, speed).
  */
 export async function playVoicePreview(
@@ -444,17 +444,25 @@ export async function playVoicePreview(
   }
 
   // Pre-unlock AudioContext on user gesture
-  unlockAudioContext().catch(() => {});
+  const ctx = await unlockAudioContext();
 
   let isStopped = false;
-
-  const audio = getSharedPreviewAudio();
-  currentActiveAudio = audio;
-  window.currentAudio = audio;
+  let activeWebAudioController: { stop: () => void } | null = null;
 
   const stopAll = () => {
     if (isStopped) return;
     isStopped = true;
+    if (activeWebAudioController) {
+      activeWebAudioController.stop();
+      activeWebAudioController = null;
+    }
+    if (currentSourceNode) {
+      try {
+        currentSourceNode.stop();
+        currentSourceNode.disconnect();
+      } catch {}
+      currentSourceNode = null;
+    }
     if (currentActiveAudio) {
       try {
         currentActiveAudio.pause();
@@ -463,11 +471,36 @@ export async function playVoicePreview(
       currentActiveAudio = null;
     }
     if (window.currentAudio) {
+      try {
+        window.currentAudio.pause();
+        window.currentAudio.currentTime = 0;
+      } catch {}
       window.currentAudio = null;
     }
     onStatusCallback?.('idle', null);
     if (onEndedCallback) onEndedCallback();
   };
+
+  const bufferCacheKey = `${targetVoice.id}_${finalPitch}_${normalizedText}`;
+
+  // Strategy A: Web Audio API (Immune to iframe restrictions & zero latency)
+  const cachedBuffer = audioBufferCache.get(bufferCacheKey);
+  if (cachedBuffer) {
+    onStatusCallback?.('playing', null);
+    onStartCallback?.();
+    activeWebAudioController = await playAudioBufferWithWebAudio(
+      cachedBuffer,
+      effectiveSpeed,
+      () => {
+        if (!isStopped) {
+          isStopped = true;
+          onStatusCallback?.('idle', null);
+          if (onEndedCallback) onEndedCallback();
+        }
+      }
+    );
+    return { stop: stopAll };
+  }
 
   // Primary URL using dedicated voice endpoint
   const primaryStreamUrl = `/api/voice-audio/${encodeURIComponent(targetVoice.id)}?text=${encodeURIComponent(
@@ -476,7 +509,47 @@ export async function playVoicePreview(
     targetVoice.voiceName || (targetVoice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural')
   )}&pitchOffset=${finalPitch}&speedMultiplier=${effectiveSpeed}&basePitchHz=${targetVoice.basePitchHz ?? 0}`;
 
-  // Secondary stream url fallback
+  // Try fetching & decoding into Web Audio API first
+  try {
+    const fetchResp = await fetch(primaryStreamUrl);
+    if (fetchResp.ok && !isStopped) {
+      const arrayBuffer = await fetchResp.arrayBuffer();
+      if (arrayBuffer.byteLength > 50 && !isStopped) {
+        try {
+          const decodedBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+          if (decodedBuffer && !isStopped) {
+            audioBufferCache.set(bufferCacheKey, decodedBuffer);
+            onStatusCallback?.('playing', null);
+            onStartCallback?.();
+            activeWebAudioController = await playAudioBufferWithWebAudio(
+              decodedBuffer,
+              effectiveSpeed,
+              () => {
+                if (!isStopped) {
+                  isStopped = true;
+                  onStatusCallback?.('idle', null);
+                  if (onEndedCallback) onEndedCallback();
+                }
+              }
+            );
+            return { stop: stopAll };
+          }
+        } catch (decodeErr) {
+          console.warn('Web Audio decode notice, falling back to HTML5 audio:', decodeErr);
+        }
+      }
+    }
+  } catch (fetchErr) {
+    console.warn('Fetch audio buffer notice:', fetchErr);
+  }
+
+  if (isStopped) return { stop: stopAll };
+
+  // Strategy B: HTML5 Audio streaming fallback
+  const audio = getSharedPreviewAudio();
+  currentActiveAudio = audio;
+  window.currentAudio = audio;
+
   const secondaryStreamUrl = `/api/stream-tts?text=${encodeURIComponent(normalizedText)}&gender=${encodeURIComponent(
     targetVoice.gender
   )}&voiceId=${encodeURIComponent(targetVoice.id)}`;
@@ -522,7 +595,6 @@ export async function playVoicePreview(
     if (onEndedCallback) onEndedCallback();
   };
 
-  // Start instant playback synchronously in user click stack
   try {
     audio.pause();
     audio.currentTime = 0;

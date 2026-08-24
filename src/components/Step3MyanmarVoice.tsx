@@ -637,7 +637,7 @@ export const Step3MyanmarVoice: React.FC<Step3MyanmarVoiceProps> = ({
         <div className="max-h-[360px] overflow-y-auto space-y-3.5 pr-2 custom-scrollbar">
           {segments.map((segment, idx) => {
             const normalized = normalizeMyanmarForTTS(segment.myanmarText || segment.sourceText);
-            const isSegmentAuditioning = playingSegmentId === segment.id && isPlayingPreview;
+            const isSegmentAuditioning = playingSegmentId === segment.id && (isPlayingDirectPreview || isPlayingPreview);
 
             return (
               <div
@@ -773,7 +773,7 @@ export const Step3MyanmarVoice: React.FC<Step3MyanmarVoiceProps> = ({
           {filteredVoices.map((voice) => {
             const isSelected = voice.id === selectedVoiceId;
             const isMale = voice.gender === 'male';
-            const isAuditioning = auditioningVoiceId === voice.id && isPlayingPreview;
+            const isAuditioning = auditioningVoiceId === voice.id && (isPlayingDirectPreview || isPlayingPreview);
 
             return (
               <div
