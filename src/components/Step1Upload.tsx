@@ -107,14 +107,6 @@ export const Step1Upload: React.FC<Step1UploadProps> = ({
   };
 
   const handleExtractClick = () => {
-    if (!hasKey && (!localKey || localKey.trim().length < 5)) {
-      setMissingKeyAlert(true);
-      setIsEditingKey(true);
-      setTimeout(() => {
-        keyInputRef.current?.focus();
-      }, 100);
-      return;
-    }
     setMissingKeyAlert(false);
     onStartAudioExtraction();
   };

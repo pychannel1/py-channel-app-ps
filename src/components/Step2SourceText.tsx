@@ -68,12 +68,6 @@ export const Step2SourceText: React.FC<Step2SourceTextProps> = ({
   }, [geminiApiKey]);
 
   const handleDirectTranslateClick = () => {
-    const activeKey = geminiApiKey || localGeminiKey;
-    if (!activeKey || activeKey.trim().length < 10) {
-      setMissingGeminiAlert(true);
-      setShowKeyInput(true);
-      return;
-    }
     setMissingGeminiAlert(false);
     onTranslateWithDirectGeminiApi();
   };
