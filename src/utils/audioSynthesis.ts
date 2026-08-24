@@ -1,10 +1,6 @@
 import { BurmeseVoiceAvatar, TranscriptSegment } from '../types';
 import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
 import { normalizeMyanmarForTTS } from './myanmarTextNormalizer';
-import {
-  playModelPreview,
-  generateSyntheticSpeechWavBlob,
-} from './audioSynthesizer';
 
 let audioCtx: AudioContext | null = null;
 let currentSourceNode: AudioBufferSourceNode | null = null;
@@ -642,11 +638,6 @@ export const playMyanmarAudio = (text: string, speed: number = 1.0): Promise<boo
     }).catch(() => resolve(true));
   });
 };
-
-export {
-  playModelPreview,
-  generateSyntheticSpeechWavBlob,
-} from './audioSynthesizer';
 
 /**
  * Generate SRT subtitle string from segments

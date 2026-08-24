@@ -79,7 +79,6 @@ export async function playMyanmarSpeech(
   });
 }
 
-export { playModelPreview, generateSyntheticSpeechWavBlob } from '../utils/audioSynthesizer';
 export { playInstantVoicePreview, playRealMyanmarAudio } from '../utils/audioPlayer';
 
 
