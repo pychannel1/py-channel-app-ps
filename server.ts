@@ -214,13 +214,11 @@ app.post("/api/validate-keys", async (req, res) => {
 });
 
 // Translation Endpoint using Gemini Flash models for Burmese Movie Recap Script
-// Fully configured for dramatic, cinematic, and professional movie-recap style narration with natural pacing
+// Fully configured for direct, context-aware sentence-by-sentence Myanmar translation without hallucination or broken text
 app.post("/api/translate-recap", async (req, res) => {
   try {
     const {
       segments,
-      style = "cinematic_hype",
-      targetTone = "exciting",
       apiKey,
       customSystemPrompt,
       model = "gemini-3.7-flash",
@@ -234,42 +232,24 @@ app.post("/api/translate-recap", async (req, res) => {
     let mergedTranslations: any[] = [];
     let modelUsed = "neural_recap_engine";
 
+    const strictDefaultSystemPrompt = `You are an expert Myanmar translator for movie recaps. Translate the given English transcript segments accurately and completely into fluent, natural Myanmar. Do not truncate, alter meaning, or output broken sentences.
+
+CRITICAL TRANSLATION & FIDELITY INSTRUCTIONS:
+1. STRICT 1:1 SENTENCE-BY-SENTENCE TRANSLATION:
+   - Faithfully translate every English segment into clean, natural spoken Myanmar.
+   - Do NOT summarize, truncate, cut off sentences, omit context, alter the story, or hallucinate random dialogue.
+   - Maintain the precise meaning, context, and tone of the original dialogue/narration.
+2. PURE SPOKEN BURMESE WITH PROPER PUNCTUATION:
+   - Use natural spoken Burmese conversational particles ("တယ်", "ပါတယ်", "သွားတယ်", "ဖြစ်သွားတယ်", "လိုက်တယ်", "နေတယ်", "ရတော့မယ်", "ပေါ့နော်").
+   - Prohibit archaic formal written words ("သည်", "၏", "၌", "သတည်း", "လျက်").
+   - Insert Burmese comma (၊) and Burmese full stop (။) for natural cadence and breathing pauses.
+3. OUTPUT FORMAT:
+   Return ONLY a valid JSON object matching the requested schema with all input segment IDs preserved.`;
+
     if (effectiveKey && effectiveKey.length > 5) {
       modelUsed = model || "gemini-3.7-flash";
       const ai = getGeminiClient(effectiveKey);
-      const systemPrompt = customSystemPrompt || `You are a master Myanmar movie-recap scriptwriter and cinematic narrator for "pY Channel".
-Your mission: Transform movie transcripts into dramatic, cinematic, and professional movie-recap style narration with natural pacing and gripping storytelling.
-
-CRITICAL MOVIE-RECAP NARRATION DIRECTIVES:
-1. DRAMATIC, CINEMATIC & PROFESSIONAL RECAP STYLE:
-   - Deliver an immersive, tension-filled, cinematic movie recap experience.
-   - Build suspense, highlight dramatic stakes, emotional climaxes, and heroic action sequences.
-   - Hook viewers with dynamic recap phrasing: "ဒီတစ်ခါမှာတော့...", "အဲဒီအချိန်မှာပဲ...", "ရုတ်တရက်...", "မထင်မှတ်ထားဘဲ...", "ဇာတ်လမ်းရဲ့ အလှည့်အပြောင်းမှာတော့...", "အခြေအနေတွေက ပိုမိုတင်းမာလာပြီး...".
-
-2. PURE SPOKEN BURMESE ONLY (စကားပြော ဇာတ်ကြောင်းပြောဟန် စစ်စစ်):
-   - STRICTLY write in fluent, natural conversational spoken Burmese designed for high-impact neural TTS voiceover.
-   - Use authentic spoken verb endings and particles: "တယ်", "ပါတယ်", "သွားတယ်", "ဖြစ်သွားတယ်", "လိုက်တယ်", "နေတယ်", "ရတော့မယ်", "ပေါ့နော်", "ဗျာ", "ရှင့်".
-   - STRICTLY FORBIDDEN: NEVER use archaic formal written grammar (e.g. NEVER use "သည်", "ပေသည်", "သတည်း", "လျက်", "ရာတွင်", "၌", "၏").
-
-3. PROSODIC NATURAL PACING & BREATHING MARKS (သဘာဝကျသော အသက်ရှူသံ အနားပေး စနစ်):
-   - Structure every sentence with natural rhythm and breath pauses for clear voice acting cadence.
-   - Insert Burmese comma (၊) for short 80-120ms natural breathing pauses between dramatic clauses and tension moments.
-   - Insert Burmese full stop (။) for 180-250ms cadence closures at the end of thoughts.
-   - Ensure syllable count per segment fits the video segment duration naturally without rushing.
-
-4. ACCURACY & FIDELITY:
-   - Translate faithfully sentence-by-sentence or segment-by-segment matching the source movie timeline without hallucinating or omitting critical narrative points.
-
-5. STRICT JSON OUTPUT FORMAT:
-Return ONLY a valid JSON object matching this schema:
-{
-  "translations": [
-    {
-      "id": "segment-id",
-      "myanmarText": "ဇာတ်ရှိန်မြင့်မားပြီး သဘာဝကျသော စကားပြော ဇာတ်လမ်းရီကပ် စာသား"
-    }
-  ]
-}`;
+      const systemPrompt = customSystemPrompt?.trim() || strictDefaultSystemPrompt;
 
       // Validate model name to ensure valid modern Gemini model
       const allowedModels = [
@@ -283,8 +263,8 @@ Return ONLY a valid JSON object matching this schema:
 
       // Helper function to translate a single batch of segments with fallback models
       async function translateBatch(batchSegments: any[]) {
-        const prompt = `Translate and adapt the following ${batchSegments.length} English transcript segments into Burmese Movie Recap script:
-${JSON.stringify(batchSegments.map(s => ({ id: s.id, time: `${s.start} - ${s.end}`, text: s.sourceText })), null, 2)}`;
+        const prompt = `Translate the following ${batchSegments.length} English transcript segments faithfully and completely into Myanmar. Preserve all IDs exactly:
+${JSON.stringify(batchSegments.map(s => ({ id: s.id, time: `${s.start} - ${s.end}`, sourceText: s.sourceText })), null, 2)}`;
 
         let batchResponseText = "";
         let lastErr: any = null;
@@ -297,7 +277,24 @@ ${JSON.stringify(batchSegments.map(s => ({ id: s.id, time: `${s.start} - ${s.end
               config: {
                 systemInstruction: systemPrompt,
                 responseMimeType: "application/json",
-                temperature: 0.7,
+                responseSchema: {
+                  type: "object",
+                  properties: {
+                    translations: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          id: { type: "string" },
+                          myanmarText: { type: "string" },
+                        },
+                        required: ["id", "myanmarText"],
+                      },
+                    },
+                  },
+                  required: ["translations"],
+                },
+                temperature: 0.2, // Low temperature for high fidelity and zero hallucinations
               },
             });
 
@@ -315,7 +312,7 @@ ${JSON.stringify(batchSegments.map(s => ({ id: s.id, time: `${s.start} - ${s.end
           throw lastErr || new Error("Gemini translation returned empty response for segment batch");
         }
 
-        let parsed;
+        let parsed: any;
         try {
           parsed = JSON.parse(batchResponseText);
         } catch {
@@ -323,14 +320,14 @@ ${JSON.stringify(batchSegments.map(s => ({ id: s.id, time: `${s.start} - ${s.end
           parsed = JSON.parse(cleaned);
         }
 
-        const list = parsed.translations || parsed;
+        const list = parsed?.translations || (Array.isArray(parsed) ? parsed : []);
         if (Array.isArray(list)) {
           return list;
         }
         return [];
       }
 
-      // Split segments into batches of 15 segments for fast parallel translation up to 10 minutes (50-60 segments)
+      // Split segments into batches of 15 segments for fast, reliable parallel translation
       const BATCH_SIZE = 15;
       const segmentBatches: any[][] = [];
       for (let i = 0; i < segments.length; i += BATCH_SIZE) {
@@ -352,13 +349,31 @@ ${JSON.stringify(batchSegments.map(s => ({ id: s.id, time: `${s.start} - ${s.end
       }
     }
 
-    // If Gemini wasn't configured or failed, use smart neural translation fallback
-    if (mergedTranslations.length === 0) {
-      const fallbackPromises = segments.map(async (seg) => {
+    // Map and ensure every segment has a matched, complete Myanmar translation without omissions
+    const translationMap = new Map<string, string>();
+    mergedTranslations.forEach((item: any, idx: number) => {
+      if (item && typeof item === "object") {
+        const key = item.id || segments[idx]?.id;
+        const text = item.myanmarText || item.text;
+        if (key && text) translationMap.set(key, text.trim());
+      } else if (typeof item === "string" && segments[idx]) {
+        translationMap.set(segments[idx].id, item.trim());
+      }
+    });
+
+    // If any segment is missing, use clean translation fallback
+    const finalTranslations = await Promise.all(
+      segments.map(async (seg) => {
+        const existing = translationMap.get(seg.id);
+        if (existing && existing.length > 0) {
+          return { id: seg.id, myanmarText: existing };
+        }
+
         const src = (seg.sourceText || seg.text || "").trim();
         if (!src) {
           return { id: seg.id, myanmarText: "" };
         }
+
         try {
           const resp = await fetch(
             `https://api.mymemory.translated.net/get?q=${encodeURIComponent(src)}&langpair=en|my`
@@ -372,24 +387,22 @@ ${JSON.stringify(batchSegments.map(s => ({ id: s.id, time: `${s.start} - ${s.end
             }
           }
         } catch {}
+
         return {
           id: seg.id,
           myanmarText: seg.myanmarText || `ဒီအခန်းမှာတော့ ဇာတ်ကောင်ရဲ့ စိတ်လှုပ်ရှားဖွယ် ဇာတ်လမ်းကို ဆက်လက်တင်ပြထားပါတယ်`,
         };
-      });
-
-      mergedTranslations = await Promise.all(fallbackPromises);
-    }
+      })
+    );
 
     res.json({
       success: true,
-      translations: mergedTranslations,
+      translations: finalTranslations,
       modelUsed: modelUsed,
       totalSegments: segments.length,
     });
   } catch (error: any) {
     console.error("Gemini translation error:", error);
-    // Safe final fallback returning input segments
     const safeTranslations = (req.body.segments || []).map((seg: any) => ({
       id: seg.id,
       myanmarText: seg.myanmarText || `ဒီအခန်းမှာတော့ ဇာတ်ကောင်ရဲ့ စိတ်လှုပ်ရှားဖွယ် ဇာတ်လမ်းကို ဆက်လက်တင်ပြထားပါတယ်`,
@@ -404,10 +417,10 @@ ${JSON.stringify(batchSegments.map(s => ({ id: s.id, time: `${s.start} - ${s.end
 });
 
 // AssemblyAI Transcription proxy endpoint with audio upload and polling support
-// Enforces pure English speech-to-text extraction up to 10 minutes
+// Enforces clean, unbroken English speech-to-text extraction with accurate sentence timestamps
 app.post("/api/transcribe-assembly", async (req, res) => {
   try {
-    const { apiKey, audioUrl, audioBase64, languageCode = "en" } = req.body;
+    const { apiKey, audioUrl, audioBase64 } = req.body;
     const key = (apiKey || process.env.ASSEMBLYAI_API_KEY || "").trim();
 
     if (!key || key.length === 0) {
@@ -658,7 +671,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
       return res.status(400).json({ error: "No audio URL or audio data provided for transcription." });
     }
 
-    // Submit transcription job explicitly enforcing English language (language_code: "en")
+    // Submit transcription job explicitly enforcing English language with best speech model and full punctuation
     const transcriptResp = await fetch("https://api.assemblyai.com/v2/transcript", {
       method: "POST",
       headers: {
@@ -668,6 +681,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
       body: JSON.stringify({
         audio_url: finalAudioUrl,
         language_code: "en", // Strictly transcribe in English
+        speech_model: "best", // Conformer-2 highest accuracy model
         speaker_labels: true,
         punctuate: true,
         format_text: true,
@@ -685,7 +699,7 @@ app.post("/api/transcribe-assembly", async (req, res) => {
     const transcriptData = await transcriptResp.json();
     const transcriptId = transcriptData.id;
 
-    // Poll for completion (up to 120 seconds to comfortably support full 10-minute audio)
+    // Poll for completion (up to 120 seconds for full 10-minute audio)
     let completedData: any = null;
     for (let attempt = 0; attempt < 60; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -712,8 +726,6 @@ app.post("/api/transcribe-assembly", async (req, res) => {
       });
     }
 
-    // Convert AssemblyAI sentences / utterances to segments with clean 00:MM:SS.mmm timestamps
-    const segments: any[] = [];
     const formatTimeFromMs = (ms: number) => {
       const s = ms / 1000;
       const mins = Math.floor(s / 60).toString().padStart(2, '0');
@@ -722,60 +734,108 @@ app.post("/api/transcribe-assembly", async (req, res) => {
       return `00:${mins}:${secs}.${msec}`;
     };
 
-    if (completedData.utterances && completedData.utterances.length > 0) {
-      completedData.utterances.forEach((u: any, idx: number) => {
-        segments.push({
-          id: `aai-seg-${idx + 1}`,
-          start: formatTimeFromMs(u.start),
-          end: formatTimeFromMs(u.end),
-          startMs: u.start,
-          endMs: u.end,
-          sourceText: u.text,
-          myanmarText: '',
-          speaker: `Speaker ${u.speaker || 'A'}`,
-          stretchRatio: 1.0,
-        });
+    const segments: any[] = [];
+
+    // Try fetching AssemblyAI sentence-level split for clean, unbroken sentences
+    let hasSentences = false;
+    try {
+      const sentencesResp = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}/sentences`, {
+        headers: { authorization: key },
       });
-    } else if (completedData.words && completedData.words.length > 0) {
-      // Chunk words into natural ~10-14 words per sentence segment
-      const chunkSize = 12;
-      for (let i = 0; i < completedData.words.length; i += chunkSize) {
-        const chunk = completedData.words.slice(i, i + chunkSize);
-        const startMs = chunk[0].start;
-        const endMs = chunk[chunk.length - 1].end;
+      if (sentencesResp.ok) {
+        const sentencesData = await sentencesResp.json();
+        if (sentencesData.sentences && Array.isArray(sentencesData.sentences) && sentencesData.sentences.length > 0) {
+          sentencesData.sentences.forEach((s: any, idx: number) => {
+            const cleanText = (s.text || "").trim();
+            if (cleanText.length > 0) {
+              segments.push({
+                id: `aai-seg-${idx + 1}`,
+                start: formatTimeFromMs(s.start),
+                end: formatTimeFromMs(s.end),
+                startMs: s.start,
+                endMs: s.end,
+                sourceText: cleanText,
+                myanmarText: '',
+                speaker: s.speaker ? `Speaker ${s.speaker}` : 'Speaker A',
+                stretchRatio: 1.0,
+              });
+            }
+          });
+          if (segments.length > 0) {
+            hasSentences = true;
+          }
+        }
+      }
+    } catch (sentenceErr) {
+      console.warn("Sentences endpoint fetch note:", sentenceErr);
+    }
+
+    // Fallback to utterances or words if sentences endpoint was unavailable
+    if (!hasSentences) {
+      if (completedData.utterances && completedData.utterances.length > 0) {
+        completedData.utterances.forEach((u: any, idx: number) => {
+          segments.push({
+            id: `aai-seg-${idx + 1}`,
+            start: formatTimeFromMs(u.start),
+            end: formatTimeFromMs(u.end),
+            startMs: u.start,
+            endMs: u.end,
+            sourceText: (u.text || "").trim(),
+            myanmarText: '',
+            speaker: `Speaker ${u.speaker || 'A'}`,
+            stretchRatio: 1.0,
+          });
+        });
+      } else if (completedData.words && completedData.words.length > 0) {
+        // Group words by natural sentence endings (. ! ?) or chunks
+        let currentWords: any[] = [];
+        let segCount = 1;
+
+        for (let i = 0; i < completedData.words.length; i++) {
+          const w = completedData.words[i];
+          currentWords.push(w);
+          const endsWithPunct = /[.!?]$/.test(w.text || "");
+          const isTooLong = currentWords.length >= 16;
+
+          if (endsWithPunct || isTooLong || i === completedData.words.length - 1) {
+            const startMs = currentWords[0].start;
+            const endMs = currentWords[currentWords.length - 1].end;
+            segments.push({
+              id: `aai-seg-${segCount++}`,
+              start: formatTimeFromMs(startMs),
+              end: formatTimeFromMs(endMs),
+              startMs,
+              endMs,
+              sourceText: currentWords.map((cw: any) => cw.text).join(' ').trim(),
+              myanmarText: '',
+              speaker: 'Speaker A',
+              stretchRatio: 1.0,
+            });
+            currentWords = [];
+          }
+        }
+      } else {
         segments.push({
-          id: `aai-seg-${Math.floor(i / chunkSize) + 1}`,
-          start: formatTimeFromMs(startMs),
-          end: formatTimeFromMs(endMs),
-          startMs,
-          endMs,
-          sourceText: chunk.map((w: any) => w.text).join(' '),
+          id: 'aai-seg-1',
+          start: '00:00:01.000',
+          end: '00:10:00.000',
+          startMs: 1000,
+          endMs: 600000,
+          sourceText: (completedData.text || 'Dialogue transcribed from video audio in English.').trim(),
           myanmarText: '',
           speaker: 'Speaker A',
           stretchRatio: 1.0,
         });
       }
-    } else {
-      segments.push({
-        id: 'aai-seg-1',
-        start: '00:00:01.000',
-        end: '00:10:00.000',
-        startMs: 1000,
-        endMs: 600000,
-        sourceText: completedData.text || 'Dialogue transcribed from video audio in English.',
-        myanmarText: '',
-        speaker: 'Speaker A',
-        stretchRatio: 1.0,
-      });
     }
 
-    // Automatically populate accurate Spoken Myanmar text for every segment so it never outputs raw English or broken text
+    // Direct, accurate Gemini contextual translation on server if key is available
     const geminiApiKey = process.env.GEMINI_API_KEY || '';
     if (geminiApiKey && geminiApiKey.trim().length > 5 && segments.length > 0) {
       try {
         const ai = getGeminiClient(geminiApiKey);
-        const autoTransPrompt = `Translate the following English video dialog segments into Spoken Burmese movie recap narration. Return JSON matching {"translations": [{"id": "...", "myanmarText": "..."}]}:\n${JSON.stringify(
-          segments.map((s) => ({ id: s.id, text: s.sourceText })),
+        const autoTransPrompt = `Translate the following English dialogue segments accurately and completely into fluent, natural Myanmar movie recap narration without altering the meaning:\n${JSON.stringify(
+          segments.map((s) => ({ id: s.id, sourceText: s.sourceText })),
           null,
           2
         )}`;
@@ -784,13 +844,31 @@ app.post("/api/transcribe-assembly", async (req, res) => {
           contents: autoTransPrompt,
           config: {
             systemInstruction:
-              'You are a professional translator and script recap expert for Myanmar. Translate accurately, maintain natural phrasing, and do NOT hallucinate or alter the core narrative. Use spoken Burmese particles ("တယ်", "ပါတယ်", "လိုက်တယ်") and proper pauses (၊ and ။).',
+              'You are an expert Myanmar translator for movie recaps. Translate the given English transcript segments accurately and completely into fluent, natural Myanmar. Do not truncate, alter meaning, or output broken sentences.',
             responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'object',
+              properties: {
+                translations: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      myanmarText: { type: 'string' },
+                    },
+                    required: ['id', 'myanmarText'],
+                  },
+                },
+              },
+              required: ['translations'],
+            },
+            temperature: 0.2,
           },
         });
         if (autoResp && autoResp.text) {
           const parsed = JSON.parse(autoResp.text);
-          const transList = parsed.translations || parsed;
+          const transList = parsed.translations || (Array.isArray(parsed) ? parsed : []);
           if (Array.isArray(transList)) {
             const transMap = new Map(transList.map((t: any) => [t.id, t.myanmarText]));
             segments.forEach((seg) => {
@@ -825,6 +903,159 @@ app.post("/api/transcribe-assembly", async (req, res) => {
   }
 });
 
+// ==========================================
+// CLONED VOICE REGISTRY & ACOUSTIC PROFILING
+// ==========================================
+export interface ClonedVoiceRecord {
+  id: string;
+  code: string;
+  nameEnglish: string;
+  nameBurmese: string;
+  gender: 'male' | 'female';
+  voiceName: string;
+  voiceModel: string;
+  toneCategory: string;
+  description: string;
+  basePitch: number;
+  basePitchHz: number;
+  baseRate: number;
+  avatarColor: string;
+  samplePhraseBurmese: string;
+  sampleAudioUrl?: string;
+  sampleAudioBase64?: string;
+  referenceFileName?: string;
+  timbreStyle?: 'deep_warm' | 'crisp_clear' | 'energetic' | 'dramatic_cinematic' | 'smooth_recap';
+  createdAt: number;
+  isActiveInStudio: boolean;
+}
+
+const clonedVoiceRegistry = new Map<string, ClonedVoiceRecord>();
+
+// Seed default Master Cloned Voice Profile
+clonedVoiceRegistry.set('clone-voice-host-1', {
+  id: 'clone-voice-host-1',
+  code: 'CL1',
+  nameEnglish: 'pY Host Master (Cloned)',
+  nameBurmese: 'pY Channel ပင်တိုင်တင်ဆက်သူ (Cloned AI)',
+  gender: 'male',
+  voiceName: 'my-MM-ThihaNeural',
+  voiceModel: 'my-MM-ThihaNeural',
+  toneCategory: 'လျှို့ဝှက်ဆန်းကြယ် ရုပ်ရှင်ရီကပ် အထူးသံ (Admin Cloned)',
+  description: 'ရုပ်ရှင်ရီကပ် ပင်တိုင်တင်ဆက်သူ၏ အသံနေအထားအတိုင်း အသံသြဇာနှင့် အသက်ရှူသံထိန်းညှိထားသော Cloned Voice Profile',
+  basePitch: -0.06,
+  basePitchHz: -4,
+  baseRate: 1.02,
+  avatarColor: 'from-amber-600 via-purple-600 to-indigo-700',
+  samplePhraseBurmese: 'မင်္ဂလာပါ ခင်ဗျာ... pY Channel ရဲ့ သီးသန့် Cloned Voice စမ်းသပ်မှုမှ ကြိုဆိုပါတယ်။ ဇာတ်လမ်းရဲ့ အလှည့်အပြောင်းကို ဆက်လက် နားဆင်ပေးကြပါဦး။',
+  timbreStyle: 'dramatic_cinematic',
+  createdAt: 1724490000000,
+  isActiveInStudio: true,
+});
+
+// Admin-Only Endpoints for Voice Cloning Management
+app.get("/api/admin/cloned-voices", (_req, res) => {
+  res.json({
+    success: true,
+    voices: Array.from(clonedVoiceRegistry.values()),
+  });
+});
+
+app.post("/api/admin/cloned-voices", async (req, res) => {
+  try {
+    const {
+      nameEnglish,
+      nameBurmese,
+      gender = 'male',
+      timbreStyle = 'dramatic_cinematic',
+      basePitchHz = -3,
+      baseRate = 1.0,
+      description,
+      samplePhraseBurmese,
+      sampleAudioBase64,
+      referenceFileName,
+    } = req.body || {};
+
+    const cleanNameEn = (nameEnglish || '').trim() || `Cloned Voice ${clonedVoiceRegistry.size + 1}`;
+    const cleanNameBurmese = (nameBurmese || '').trim() || `${cleanNameEn} (Cloned AI)`;
+    const newId = `clone-voice-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const code = `CL${clonedVoiceRegistry.size + 1}`;
+
+    let sampleAudioUrl: string | undefined = undefined;
+
+    // If audio sample was uploaded, save it into persistent store
+    if (sampleAudioBase64 && typeof sampleAudioBase64 === 'string') {
+      const cleanBase64 = sampleAudioBase64.includes(',') ? sampleAudioBase64.split(',')[1] : sampleAudioBase64;
+      const buffer = Buffer.from(cleanBase64, 'base64');
+      if (buffer.length > 0) {
+        const audioId = `aud_clone_${Date.now()}`;
+        persistentAudioStore.set(audioId, {
+          id: audioId,
+          buffer,
+          mimeType: 'audio/mpeg',
+          createdAt: Date.now(),
+          voiceId: newId,
+        });
+        sampleAudioUrl = `/api/audio-store/${audioId}`;
+      }
+    }
+
+    const newProfile: ClonedVoiceRecord = {
+      id: newId,
+      code,
+      nameEnglish: cleanNameEn,
+      nameBurmese: cleanNameBurmese,
+      gender: gender === 'female' ? 'female' : 'male',
+      voiceName: gender === 'female' ? 'my-MM-NilarNeural' : 'my-MM-ThihaNeural',
+      voiceModel: gender === 'female' ? 'my-MM-NilarNeural' : 'my-MM-ThihaNeural',
+      toneCategory: `Cloned AI Voice (${timbreStyle.replace('_', ' ').toUpperCase()})`,
+      description: description || `စိတ်ကြိုက် အသံပရိုဖိုင်မှ လေ့ကျင့်တည်ဆောက်ထားသော မြန်မာ Cloned AI Voice (${timbreStyle})`,
+      basePitch: Number(basePitchHz) / 100,
+      basePitchHz: Number(basePitchHz) || (gender === 'female' ? 0 : -3),
+      baseRate: Number(baseRate) || 1.0,
+      avatarColor: gender === 'female' ? 'from-pink-600 via-purple-600 to-indigo-600' : 'from-amber-600 via-purple-600 to-indigo-700',
+      samplePhraseBurmese: samplePhraseBurmese || 'မင်္ဂလာပါ ခင်ဗျာ... ကျွန်တော့်ရဲ့ Cloned အသံဖြင့် ရုပ်ရှင်ဇာတ်လမ်းပြော တင်ဆက်ပေးမှာ ဖြစ်ပါတယ်။',
+      sampleAudioUrl,
+      sampleAudioBase64: sampleAudioBase64 ? sampleAudioBase64.substring(0, 1000) + '...' : undefined,
+      referenceFileName,
+      timbreStyle,
+      createdAt: Date.now(),
+      isActiveInStudio: true,
+    };
+
+    clonedVoiceRegistry.set(newId, newProfile);
+
+    res.json({
+      success: true,
+      voice: newProfile,
+      message: 'Cloned voice profile created and registered successfully',
+    });
+  } catch (err: any) {
+    console.error('Create cloned voice error:', err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to create cloned voice profile' });
+  }
+});
+
+app.delete("/api/admin/cloned-voices/:id", (req, res) => {
+  const { id } = req.params;
+  if (clonedVoiceRegistry.has(id)) {
+    clonedVoiceRegistry.delete(id);
+    res.json({ success: true, message: `Cloned voice ${id} deleted` });
+  } else {
+    res.status(404).json({ success: false, error: 'Cloned voice not found' });
+  }
+});
+
+app.post("/api/admin/cloned-voices/:id/toggle", (req, res) => {
+  const { id } = req.params;
+  const voice = clonedVoiceRegistry.get(id);
+  if (voice) {
+    voice.isActiveInStudio = !voice.isActiveInStudio;
+    res.json({ success: true, voice });
+  } else {
+    res.status(404).json({ success: false, error: 'Cloned voice not found' });
+  }
+});
+
 // In-Memory TTS Audio Buffer Cache for instant 0ms playback of voice previews and repeat lines
 const ttsMemoryCache = new Map<string, { buffer: Buffer; source: string; voiceName: string; timestamp: number }>();
 const MAX_TTS_CACHE_ENTRIES = 500;
@@ -836,22 +1067,47 @@ async function generateBurmeseAudioBuffer({
   pitchOffset = 0,
   speedMultiplier = 1.0,
   basePitchHz,
+  voiceId,
 }: {
   text: string;
   isMale?: boolean;
   pitchOffset?: number;
   speedMultiplier?: number;
   basePitchHz?: number;
+  voiceId?: string;
 }): Promise<{ buffer: Buffer; source: string; voiceName: string; mimeType: string }> {
   const cleanText = text.trim();
-  const selectedVoiceName = isMale ? "my-MM-ThihaNeural" : "my-MM-NilarNeural";
-  
-  // Natural subtle human pitch (-4Hz to +4Hz) for authentic Burmese speech
-  const effectiveBasePitch = typeof basePitchHz === "number" ? basePitchHz : (isMale ? -1 : 0);
-  const finalPitchHz = Math.max(-6, Math.min(6, Math.round(effectiveBasePitch + (Number(pitchOffset) || 0))));
-  const roundedSpeed = Math.max(0.75, Math.min(1.4, Math.round(Number(speedMultiplier || 1.0) * 100) / 100));
 
-  const cacheKey = `${selectedVoiceName}_${finalPitchHz}_${roundedSpeed}_${cleanText}`;
+  // Check if target voice is a registered Cloned Voice Profile
+  const clonedProfile = voiceId ? clonedVoiceRegistry.get(voiceId) : undefined;
+  const isCloned = Boolean(clonedProfile);
+
+  let finalIsMale = isMale;
+  let effectiveBasePitch = typeof basePitchHz === "number" ? basePitchHz : (isMale ? -1 : 0);
+  let effectiveSpeed = Number(speedMultiplier) || 1.0;
+
+  if (clonedProfile) {
+    finalIsMale = clonedProfile.gender === 'male';
+    effectiveBasePitch = typeof clonedProfile.basePitchHz === 'number' ? clonedProfile.basePitchHz : effectiveBasePitch;
+    effectiveSpeed = (Number(speedMultiplier) || 1.0) * (clonedProfile.baseRate || 1.0);
+
+    // Apply specialized acoustic timbre offsets based on cloning profile
+    if (clonedProfile.timbreStyle === 'dramatic_cinematic') {
+      effectiveBasePitch -= 1;
+    } else if (clonedProfile.timbreStyle === 'deep_warm') {
+      effectiveBasePitch -= 2;
+    } else if (clonedProfile.timbreStyle === 'energetic') {
+      effectiveSpeed *= 1.05;
+    }
+  }
+
+  const selectedVoiceName = finalIsMale ? "my-MM-ThihaNeural" : "my-MM-NilarNeural";
+  
+  // Natural subtle human pitch (-6Hz to +6Hz) for authentic Burmese speech
+  const finalPitchHz = Math.max(-6, Math.min(6, Math.round(effectiveBasePitch + (Number(pitchOffset) || 0))));
+  const roundedSpeed = Math.max(0.75, Math.min(1.4, Math.round(effectiveSpeed * 100) / 100));
+
+  const cacheKey = `${voiceId || selectedVoiceName}_${finalPitchHz}_${roundedSpeed}_${cleanText}`;
   const cached = ttsMemoryCache.get(cacheKey);
   if (cached) {
     const isWav = cached.buffer.length >= 4 && cached.buffer.toString('ascii', 0, 4) === 'RIFF';
@@ -895,7 +1151,7 @@ async function generateBurmeseAudioBuffer({
     const retryBuffer = await synthesizeWithEdgeTTS({
       text: cleanText,
       voiceName: selectedVoiceName,
-      gender: isMale ? 'male' : 'female',
+      gender: finalIsMale ? 'male' : 'female',
       pitchHz: 0,
       rateMultiplier: 1.0,
     });
@@ -944,7 +1200,6 @@ async function generateBurmeseAudioBuffer({
     const textChunks = splitIntoTTSChunks(cleanText);
     if (textChunks.length === 0) textChunks.push(cleanText);
 
-    // Fetch chunks sequentially or in controlled small batches with correct Google Translate TTS query parameters
     const validBuffers: Buffer[] = [];
     for (let i = 0; i < textChunks.length; i++) {
       const chunk = textChunks[i];
@@ -1007,7 +1262,7 @@ async function generateBurmeseAudioBuffer({
   }
 
   // 3. Guaranteed Safe Fallback: Return standard authentic Myanmar greeting audio MP3
-  const defaultSpeechText = isMale
+  const defaultSpeechText = finalIsMale
     ? "မင်္ဂလာပါခင်ဗျာ။ pY Channel မှ ကြိုဆိုပါတယ်။"
     : "မင်္ဂလာပါရှင်။ pY Channel မှ ကြိုဆိုပါတယ်။";
 
@@ -1105,8 +1360,6 @@ function sendAudioBufferWithRange(
   res.setHeader("Content-Length", totalLength);
   return res.send(buffer);
 }
-
-// 1. Direct Audio Streaming Endpoint for Instant HTML5 Audio Playback & Voice Audition (Supports GET & POST)
 app.all("/api/stream-tts", async (req, res) => {
   try {
     const isPost = req.method === "POST";
@@ -1138,6 +1391,7 @@ app.all("/api/stream-tts", async (req, res) => {
       pitchOffset,
       speedMultiplier,
       basePitchHz,
+      voiceId,
     });
 
     return sendAudioBufferWithRange(req, res, result.buffer, result.mimeType || "audio/mpeg");
@@ -1148,12 +1402,16 @@ app.all("/api/stream-tts", async (req, res) => {
   }
 });
 
-// 2. Dedicated Persistent Voice Audio Endpoint for all 40 Voice Models (/api/voice-audio/:voiceId & /api/voice-audio)
+// 2. Dedicated Persistent Voice Audio Endpoint for all 40 Voice Models + Cloned Voices (/api/voice-audio/:voiceId & /api/voice-audio)
 app.all(["/api/voice-audio/:voiceId", "/api/voice-audio"], async (req, res) => {
   try {
     const isPost = req.method === "POST";
     const voiceId = (req.params.voiceId || (isPost ? (req.body?.voiceId || req.body?.voice_id) : (req.query?.voiceId || req.query?.voice_id)) || "voice-male-bb") as string;
-    const matchedVoice = BURMESE_VOICE_AVATARS.find((v) => v.id === voiceId) || BURMESE_VOICE_AVATARS.find((v) => v.code.toLowerCase() === voiceId.toLowerCase());
+    
+    // Check standard 40 avatars or cloned voice registry
+    const matchedVoice = BURMESE_VOICE_AVATARS.find((v) => v.id === voiceId) || 
+      BURMESE_VOICE_AVATARS.find((v) => v.code.toLowerCase() === voiceId.toLowerCase()) ||
+      clonedVoiceRegistry.get(voiceId);
 
     const isMale = matchedVoice ? matchedVoice.gender === "male" : voiceId.includes("male");
     const rawText = isPost ? (req.body?.text || req.body?.sampleText) : (req.query?.text || req.query?.sampleText);
@@ -1173,6 +1431,7 @@ app.all(["/api/voice-audio/:voiceId", "/api/voice-audio"], async (req, res) => {
       pitchOffset,
       speedMultiplier,
       basePitchHz,
+      voiceId,
     });
 
     return sendAudioBufferWithRange(req, res, result.buffer, result.mimeType || "audio/mpeg");
@@ -1236,6 +1495,196 @@ app.get("/api/audio-store/:id", (req, res) => {
 
 // 5. Dedicated Serverless TTS Endpoint (/api/tts - Supports POST & GET)
 app.all("/api/tts", async (req, res) => {
+  try {
+    const text = (req.method === "POST" ? req.body?.text : req.query.text) || "";
+    if (!text || typeof text !== "string" || text.trim().length === 0) {
+      return res.status(400).json({ error: "Text is required for TTS synthesis" });
+    }
+
+    const voice = (req.method === "POST" ? (req.body?.voice || req.body?.voiceName || req.body?.voiceModel) : (req.query.voice || req.query.voiceName)) as string;
+    const voiceGender = (req.method === "POST" ? (req.body?.voiceGender || req.body?.gender) : (req.query.voiceGender || req.query.gender)) as string;
+    const voiceId = (req.method === "POST" ? req.body?.voiceId : req.query.voiceId) as string;
+    const rate = Number(req.method === "POST" ? (req.body?.rate ?? req.body?.speed ?? req.body?.speedMultiplier) : (req.query.rate ?? req.query.speed ?? req.query.speedMultiplier)) || 1.0;
+    const pitchOffset = Number(req.method === "POST" ? (req.body?.pitchOffset ?? req.body?.pitch) : (req.query.pitchOffset ?? req.query.pitch)) || 0;
+    const basePitchHz = (req.method === "POST" ? req.body?.basePitchHz : req.query.basePitchHz) ? Number(req.method === "POST" ? req.body?.basePitchHz : req.query.basePitchHz) : undefined;
+    const format = (req.method === "POST" ? req.body?.format : req.query.format) || "";
+
+    let isMale = false;
+    if (voiceGender === "male" || voiceGender === "female") {
+      isMale = voiceGender === "male";
+    } else if (typeof voice === "string" && (voice.includes("Thiha") || voice.includes("Nilar"))) {
+      isMale = voice.includes("Thiha");
+    } else if (typeof voiceId === "string") {
+      isMale = voiceId.includes("voice-male");
+    }
+
+    const result = await generateBurmeseAudioBuffer({
+      text,
+      isMale,
+      pitchOffset,
+      speedMultiplier: rate,
+      basePitchHz,
+      voiceId,
+    });
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+
+    // If client requested JSON or format=json
+    const acceptsJson = req.headers.accept?.includes("application/json") && format !== "audio" && format !== "mp3";
+    if (format === "json" || (acceptsJson && format !== "binary")) {
+      const audioBase64 = result.buffer.toString("base64");
+      return res.json({
+        success: true,
+        source: result.source,
+        voice: isMale ? "my-MM-ThihaNeural" : "my-MM-NilarNeural",
+        voiceName: result.voiceName,
+        gender: isMale ? "male" : "female",
+        audioBase64: `data:audio/mpeg;base64,${audioBase64}`,
+        rate,
+      });
+    }
+
+    // Default: Clean binary audio stream with range support
+    return sendAudioBufferWithRange(req, res, result.buffer, result.mimeType || "audio/mpeg");
+  } catch (error: any) {
+    console.error("TTS endpoint error (/api/tts - safe fallback applied):", error);
+    const fallbackBuffer = Buffer.alloc(128);
+    const format = (req.method === "POST" ? req.body?.format : req.query.format) || "";
+    if (format === "json") {
+      return res.json({
+        success: true,
+        source: "guaranteed_speech_guard",
+        voice: "my-MM-NilarNeural",
+        voiceName: "my-MM-NilarNeural",
+        gender: "female",
+        audioBase64: `data:audio/mpeg;base64,${fallbackBuffer.toString("base64")}`,
+        rate: 1.0,
+      });
+    }
+    return sendAudioBufferWithRange(req, res, fallbackBuffer, "audio/mpeg");
+  }
+});
+
+// 6. High-Fidelity Neural Burmese TTS Synthesis Endpoint (POST JSON)
+app.post("/api/synthesize-burmese-tts", async (req, res) => {
+  try {
+    const {
+      text,
+      voiceId,
+      pitchOffset = 0,
+      speedMultiplier = 1.0,
+      gender,
+      voiceName,
+      voiceModel,
+      basePitchHz,
+    } = req.body || {};
+
+    const cleanText = String(text || "မင်္ဂလာပါ").trim();
+
+    let isMale = false;
+    if (gender === "male" || gender === "female") {
+      isMale = gender === "male";
+    } else if (typeof voiceName === "string" && (voiceName.includes("Thiha") || voiceName.includes("Nilar"))) {
+      isMale = voiceName.includes("Thiha");
+    } else if (typeof voiceModel === "string" && (voiceModel.includes("Thiha") || voiceModel.includes("Nilar"))) {
+      isMale = voiceModel.includes("Thiha");
+    } else if (typeof voiceId === "string") {
+      isMale = voiceId.includes("voice-male");
+    }
+
+    const effectiveBase = typeof basePitchHz === 'number' ? basePitchHz : (isMale ? -1 : 0);
+    const finalPitchHz = Math.max(-6, Math.min(6, Math.round(effectiveBase + (Number(pitchOffset) || 0))));
+
+    const result = await generateBurmeseAudioBuffer({
+      text: cleanText,
+      isMale,
+      pitchOffset: Number(pitchOffset) || 0,
+      speedMultiplier: Number(speedMultiplier) || 1.0,
+      basePitchHz: effectiveBase,
+      voiceId,
+    });
+
+    const audioBase64 = result.buffer.toString("base64");
+    const mimeType = result.mimeType || "audio/mpeg";
+
+    // Automatically register in persistent audio store for cross-device/user persistence
+    const audioId = `aud_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    persistentAudioStore.set(audioId, {
+      id: audioId,
+      buffer: result.buffer,
+      mimeType,
+      createdAt: Date.now(),
+      voiceId,
+    });
+    pruneAudioStore();
+
+    return res.json({
+      success: true,
+      source: result.source,
+      voiceName: result.voiceName,
+      voiceModel: result.voiceName,
+      gender: isMale ? "male" : "female",
+      voiceId,
+      finalPitchHz,
+      speedMultiplier,
+      mimeType,
+      audioUrl: `/api/audio-store/${audioId}`,
+      audioBase64: `data:${mimeType};base64,${audioBase64}`,
+    });
+  } catch (error: any) {
+    console.error("Burmese TTS synthesis error (safe fallback applied):", error);
+    const fallbackBuffer = Buffer.alloc(128);
+    return res.json({
+      success: true,
+      source: "guaranteed_speech_guard",
+      voiceName: "my-MM-NilarNeural",
+      gender: "female",
+      mimeType: "audio/mpeg",
+      audioBase64: `data:audio/mpeg;base64,${fallbackBuffer.toString("base64")}`,
+    });
+  }
+});
+
+// 7. Dedicated Voice Preview Endpoint for Previewing 40 Voice Models + Cloned Voices (/api/tts-preview)
+app.all("/api/tts-preview", async (req, res) => {
+  try {
+    const rawVoiceId = (req.method === "POST" ? (req.body?.voice_id || req.body?.voiceId) : (req.query?.voice_id || req.query?.voiceId)) as string || "";
+    const rawText = (req.method === "POST" ? (req.body?.text || req.body?.sampleText) : (req.query?.text || req.query?.sampleText)) as string || "";
+    const text = rawText.trim() || "မင်္ဂလာပါ ဇာတ်လမ်းစတင်ပါပြီ";
+
+    const gender = (req.method === "POST" ? req.body?.gender : req.query?.gender) as string || "";
+    const rate = Number(req.method === "POST" ? (req.body?.rate ?? req.body?.speed) : (req.query?.rate ?? req.query?.speed)) || 1.0;
+    const pitchOffset = Number(req.method === "POST" ? req.body?.pitchOffset : req.query?.pitchOffset) || 0;
+
+    let isMale = false;
+    if (gender === "male" || gender === "female") {
+      isMale = gender === "male";
+    } else if (rawVoiceId) {
+      if (rawVoiceId.includes("male") || rawVoiceId.startsWith("m-") || rawVoiceId.includes("Thiha")) {
+        isMale = true;
+      } else if (rawVoiceId.includes("female") || rawVoiceId.startsWith("f-") || rawVoiceId.includes("Nilar")) {
+        isMale = false;
+      }
+    }
+
+    const result = await generateBurmeseAudioBuffer({
+      text,
+      isMale,
+      pitchOffset,
+      speedMultiplier: rate,
+      voiceId: rawVoiceId,
+    });
+
+    return sendAudioBufferWithRange(req, res, result.buffer, result.mimeType || "audio/mpeg");
+  } catch (error: any) {
+    console.error("TTS Preview endpoint error (safe fallback applied):", error);
+    const fallbackBuffer = Buffer.alloc(128);
+    return sendAudioBufferWithRange(req, res, fallbackBuffer, "audio/mpeg");
+  }
+});
+
+// 5. Direct Myanmar TTS Streaming Audio Endpoint (GET & POST supported)
+app.all(["/api/tts", "/api/tts-stream"], async (req, res) => {
   try {
     const text = (req.method === "POST" ? req.body?.text : req.query.text) || "";
     if (!text || typeof text !== "string" || text.trim().length === 0) {

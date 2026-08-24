@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TranscriptSegment, BurmeseVoiceAvatar } from '../types';
+import { TranscriptSegment, BurmeseVoiceAvatar, ClonedVoiceProfile } from '../types';
 import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
 import { normalizeMyanmarForTTS } from '../utils/myanmarTextNormalizer';
 import { playVoicePreview } from '../services/audioService';
+import { isVoiceCloneAccessible } from '../services/authService';
 import {
   Copy,
   Check,
@@ -24,6 +25,8 @@ import {
   Trash2,
   AlertCircle,
   HelpCircle,
+  Radio,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface Step3MyanmarVoiceProps {
@@ -33,6 +36,10 @@ interface Step3MyanmarVoiceProps {
   speedMultiplier: number; // 0.8 to 1.4
   isSynthesizingVoice: boolean;
   isPlayingPreview: boolean;
+  userEmail?: string;
+  isAdminAuthenticated?: boolean;
+  showVoiceClone?: boolean;
+  clonedVoices?: ClonedVoiceProfile[];
   onSelectVoice: (voiceId: string) => void;
   onChangePitch: (pitch: number) => void;
   onChangeSpeed: (speed: number) => void;
@@ -145,6 +152,10 @@ export const Step3MyanmarVoice: React.FC<Step3MyanmarVoiceProps> = ({
   speedMultiplier,
   isSynthesizingVoice,
   isPlayingPreview,
+  userEmail,
+  isAdminAuthenticated,
+  showVoiceClone,
+  clonedVoices = [],
   onSelectVoice,
   onChangePitch,
   onChangeSpeed,
@@ -160,6 +171,10 @@ export const Step3MyanmarVoice: React.FC<Step3MyanmarVoiceProps> = ({
   const [showNormalizedPreview, setShowNormalizedPreview] = useState(false);
   const [playingSegmentId, setPlayingSegmentId] = useState<string | null>(null);
   const [auditioningVoiceId, setAuditioningVoiceId] = useState<string | null>(null);
+
+  // Check if voice cloning is accessible (Admin-only or Secret Flag)
+  const isCloneAccessible = isVoiceCloneAccessible(userEmail, isAdminAuthenticated, showVoiceClone);
+  const activeClones = isCloneAccessible ? clonedVoices.filter((c) => c.isActiveInStudio !== false) : [];
 
   // Full Script Text Area State
   const [fullScriptInput, setFullScriptInput] = useState<string>('');
@@ -185,8 +200,29 @@ export const Step3MyanmarVoice: React.FC<Step3MyanmarVoiceProps> = ({
     }
   }, [isPlayingPreview]);
 
-  const selectedVoice =
-    BURMESE_VOICE_AVATARS.find((v) => v.id === selectedVoiceId) || BURMESE_VOICE_AVATARS[0];
+  // Derive selected voice (either standard or cloned)
+  const matchedClone = activeClones.find((c) => c.id === selectedVoiceId);
+  const selectedVoice: BurmeseVoiceAvatar = matchedClone
+    ? {
+        id: matchedClone.id,
+        code: 'CLONE',
+        nameBurmese: matchedClone.nameBurmese,
+        nameEnglish: matchedClone.nameEnglish,
+        gender: matchedClone.gender,
+        basePitch: matchedClone.basePitch || 0,
+        basePitchHz: matchedClone.basePitchHz || 0,
+        pitchHz: matchedClone.basePitchHz || 0,
+        baseRate: matchedClone.baseRate || matchedClone.baseRateMultiplier || 1.0,
+        speedMultiplier: matchedClone.baseRateMultiplier || 1.0,
+        voiceName: matchedClone.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural',
+        avatarColor: matchedClone.gender === 'male' ? 'from-amber-600 to-orange-700' : 'from-purple-600 to-pink-600',
+        toneCategory: `${matchedClone.timbreCategory || matchedClone.timbreStyle || 'Cloned'} • Neural Cloned`,
+        samplePhraseBurmese:
+          matchedClone.samplePhraseBurmese ||
+          'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်',
+        category: 'Cloned',
+      }
+    : BURMESE_VOICE_AVATARS.find((v) => v.id === selectedVoiceId) || BURMESE_VOICE_AVATARS[0];
 
   // Copy Myanmar Script (Formatted with timestamps)
   const handleCopyMyanmarScript = () => {
@@ -732,6 +768,127 @@ export const Step3MyanmarVoice: React.FC<Step3MyanmarVoiceProps> = ({
       {/* 3. SELECT VOICE - 40 MODELS GRID (အသံရွေးချယ်ပါ - ၄၀ Models) */}
       {/* ========================================================================= */}
       <div className="glass-panel p-5 sm:p-6 rounded-2xl border border-purple-500/20 bg-slate-950/70 shadow-2xl space-y-5">
+        {/* SECRET ADMIN ONLY: CUSTOM CLONED NEURAL VOICES */}
+        {isCloneAccessible && activeClones.length > 0 && (
+          <div className="p-4 rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-slate-900/90 to-purple-950/40 space-y-3 shadow-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/40 shadow-sm">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-amber-200 font-burmese flex items-center gap-2">
+                    <span>👑 Secret Admin Cloned Voices (သီးသန့် Clone အသံများ)</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold border border-amber-500/30">
+                      {activeClones.length} ACTIVE
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-amber-400/80 font-burmese">
+                    Admin သီးသန့် Audio Profile ဖြင့် Clone ပြုလုပ်ထားသော Neural Voices များ
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {activeClones.map((clone) => {
+                const isSelected = clone.id === selectedVoiceId;
+                const isMale = clone.gender === 'male';
+                const isAuditioning = auditioningVoiceId === clone.id && (isPlayingDirectPreview || isPlayingPreview);
+                const cloneVoiceAvatar: BurmeseVoiceAvatar = {
+                  id: clone.id,
+                  code: 'CLONE',
+                  nameBurmese: clone.nameBurmese,
+                  nameEnglish: clone.nameEnglish,
+                  gender: clone.gender,
+                  basePitch: clone.basePitch || 0,
+                  basePitchHz: clone.basePitchHz || 0,
+                  pitchHz: clone.basePitchHz || 0,
+                  baseRate: clone.baseRate || clone.baseRateMultiplier || 1.0,
+                  speedMultiplier: clone.baseRateMultiplier || 1.0,
+                  voiceName: clone.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural',
+                  avatarColor: isMale ? 'from-amber-600 to-orange-700' : 'from-purple-600 to-pink-600',
+                  toneCategory: `${clone.timbreCategory || clone.timbreStyle || 'Cloned'} • Custom Profile`,
+                  samplePhraseBurmese: clone.samplePhraseBurmese || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်',
+                  category: 'Cloned',
+                };
+
+                return (
+                  <div
+                    key={clone.id}
+                    onClick={() => onSelectVoice(clone.id)}
+                    className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-2 relative ${
+                      isSelected
+                        ? 'bg-amber-950/70 border-amber-400 ring-2 ring-amber-500/50 shadow-lg shadow-amber-500/20'
+                        : 'bg-slate-900/90 border-amber-500/30 hover:border-amber-400/60 hover:bg-slate-800/90'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`w-9 h-9 rounded-full bg-gradient-to-tr ${
+                          isMale ? 'from-amber-500 to-orange-600' : 'from-pink-500 to-purple-600'
+                        } flex items-center justify-center font-extrabold text-white text-[11px] shadow-md border border-amber-300/40 flex-shrink-0`}
+                      >
+                        🎙️
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span
+                            className={`text-xs font-bold truncate font-burmese ${
+                              isSelected ? 'text-amber-200' : 'text-slate-100'
+                            }`}
+                          >
+                            {clone.nameBurmese}
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold bg-amber-950 text-amber-300 border border-amber-500/40 flex-shrink-0">
+                            {isMale ? 'ကျား' : 'မ'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-amber-300/80 truncate font-mono">
+                          {clone.timbreCategory || 'Neural Profile'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                      <button
+                        type="button"
+                        onClick={(e) => handleAuditionVoice(e, cloneVoiceAvatar)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-burmese flex items-center gap-1.5 transition-all cursor-pointer ${
+                          isAuditioning
+                            ? 'bg-red-600 hover:bg-red-500 text-white font-bold animate-pulse'
+                            : isSelected
+                            ? 'bg-amber-600 hover:bg-amber-500 text-black font-bold shadow-md shadow-amber-500/30'
+                            : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30'
+                        }`}
+                      >
+                        {isAuditioning ? (
+                          <>
+                            <Square className="w-3 h-3 fill-current" />
+                            <span>ရပ်တန့်မည်</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3 h-3 fill-current" />
+                            <span>▶ စမ်းနားထောင်မည်</span>
+                          </>
+                        )}
+                      </button>
+
+                      {isSelected && (
+                        <span className="flex items-center gap-1 text-[10px] font-mono text-amber-400 font-bold">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-amber-400" />
+                          SELECTED
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300">

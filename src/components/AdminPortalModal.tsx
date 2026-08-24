@@ -19,13 +19,19 @@ import {
   CreditCard,
   AlertTriangle,
   Play,
+  Square,
   RefreshCw,
   Copy,
   Check,
   UserCheck,
   Search,
+  Mic,
+  Upload,
+  Radio,
+  Volume2,
+  Plus,
 } from 'lucide-react';
-import { AdminConfig, PaymentVerificationRequest, PlanTierId } from '../types';
+import { AdminConfig, PaymentVerificationRequest, PlanTierId, ClonedVoiceProfile } from '../types';
 import { SYSTEM_PROMPT_PRESETS } from '../data/adminDefaults';
 import { BURMESE_VOICE_AVATARS } from '../data/burmeseVoices';
 import { playVoicePreview } from '../services/audioService';
@@ -54,7 +60,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
   onApproveVipRequest,
   onRejectVipRequest,
 }) => {
-  const [activeTab, setActiveTab] = useState<'keys' | 'prompt' | 'tts' | 'billing' | 'maintenance' | 'playground'>('billing');
+  const [activeTab, setActiveTab] = useState<'keys' | 'prompt' | 'tts' | 'billing' | 'maintenance' | 'playground' | 'voice_clone'>('billing');
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
 
@@ -74,6 +80,21 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
   const [maintenanceNotice, setMaintenanceNotice] = useState(config.maintenanceNotice);
   const [newPin, setNewPin] = useState(config.adminPin);
   const [requests, setRequests] = useState<PaymentVerificationRequest[]>(config.verificationRequests || []);
+
+  // Voice Cloning Form & Profile State
+  const [showVoiceClone, setShowVoiceClone] = useState<boolean>(config.showVoiceClone ?? false);
+  const [clonedVoices, setClonedVoices] = useState<ClonedVoiceProfile[]>(config.clonedVoices || []);
+  const [newCloneNameEn, setNewCloneNameEn] = useState('Ko Thant Recap Master');
+  const [newCloneNameMm, setNewCloneNameMm] = useState('ကိုသန့် (ဇာတ်လမ်းပြော ရုပ်ရှင်သံ)');
+  const [newCloneGender, setNewCloneGender] = useState<'male' | 'female'>('male');
+  const [newCloneTimbre, setNewCloneTimbre] = useState<'dramatic_cinematic' | 'deep_warm' | 'crisp_clear' | 'energetic' | 'smooth_recap'>('dramatic_cinematic');
+  const [newClonePitch, setNewClonePitch] = useState<number>(-2);
+  const [newCloneSpeed, setNewCloneSpeed] = useState<number>(1.02);
+  const [newCloneSampleText, setNewCloneSampleText] = useState('မင်္ဂလာပါ ခင်ဗျာ။ pY Channel ရဲ့ သီးသန့် Voice Cloning စတူဒီယို စနစ်ကနေ ကြိုဆိုပါတယ်။');
+  const [uploadedAudioFile, setUploadedAudioFile] = useState<{ name: string; size: string; base64?: string } | null>(null);
+  const [isCreatingClone, setIsCreatingClone] = useState(false);
+  const [cloningStatusMsg, setCloningStatusMsg] = useState<{ success: boolean; msg: string } | null>(null);
+  const [auditioningCloneId, setAuditioningCloneId] = useState<string | null>(null);
 
   // Filter & Slip Modal state in Billing
   const [billingFilter, setBillingFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -112,7 +133,25 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
     setMaintenanceNotice(config.maintenanceNotice);
     setNewPin(config.adminPin);
     setRequests(config.verificationRequests || []);
+    setShowVoiceClone(config.showVoiceClone ?? false);
+    setClonedVoices(config.clonedVoices || []);
   }, [config]);
+
+  // Load backend cloned voices on modal mount
+  React.useEffect(() => {
+    if (isAdminAuthenticated) {
+      fetch('/api/admin/cloned-voices', {
+        headers: { 'x-admin-email': 'pychannel1years@gmail.com' }
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && Array.isArray(data.voices) && data.voices.length > 0) {
+            setClonedVoices(data.voices);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isAdminAuthenticated]);
 
   if (!isOpen) return null;
 
@@ -231,6 +270,146 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
     });
   };
 
+  // Voice Cloning: Reference Audio File Upload Handler
+  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+      setUploadedAudioFile({
+        name: file.name,
+        size: `${sizeMb} MB`,
+        base64,
+      });
+      setCloningStatusMsg({ success: true, msg: `Audio file "${file.name}" (${sizeMb} MB) uploaded successfully.` });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Voice Cloning: Create & Register Cloned Voice
+  const handleCreateClonedVoice = async () => {
+    if (!newCloneNameEn.trim()) {
+      setCloningStatusMsg({ success: false, msg: 'Please enter a voice profile name in English.' });
+      return;
+    }
+
+    setIsCreatingClone(true);
+    setCloningStatusMsg(null);
+
+    const newId = `clone-${Date.now()}`;
+    const newProfile: ClonedVoiceProfile = {
+      id: newId,
+      nameEnglish: newCloneNameEn.trim(),
+      nameBurmese: newCloneNameMm.trim() || newCloneNameEn.trim(),
+      gender: newCloneGender,
+      timbreStyle: newCloneTimbre,
+      basePitchHz: newClonePitch,
+      baseRateMultiplier: newCloneSpeed,
+      samplePhraseBurmese: newCloneSampleText.trim(),
+      audioSampleUrl: uploadedAudioFile?.base64,
+      isActiveInStudio: true,
+      createdAt: Date.now(),
+    };
+
+    try {
+      const resp = await fetch('/api/admin/cloned-voices', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-email': 'pychannel1years@gmail.com',
+        },
+        body: JSON.stringify(newProfile),
+      });
+      const data = await resp.json();
+
+      const updated = [newProfile, ...clonedVoices.filter((v) => v.id !== newId)];
+      setClonedVoices(updated);
+      onSaveConfig({ ...config, clonedVoices: updated });
+
+      setCloningStatusMsg({
+        success: true,
+        msg: `Cloned voice "${newProfile.nameBurmese}" registered and deployed to studio pipeline!`,
+      });
+      setUploadedAudioFile(null);
+    } catch {
+      // Offline / fallback save
+      const updated = [newProfile, ...clonedVoices.filter((v) => v.id !== newId)];
+      setClonedVoices(updated);
+      onSaveConfig({ ...config, clonedVoices: updated });
+      setCloningStatusMsg({
+        success: true,
+        msg: `Cloned voice "${newProfile.nameBurmese}" saved to local profile cache.`,
+      });
+    } finally {
+      setIsCreatingClone(false);
+    }
+  };
+
+  // Voice Cloning: Toggle active in studio
+  const handleToggleCloneActive = async (id: string) => {
+    const updated = clonedVoices.map((v) =>
+      v.id === id ? { ...v, isActiveInStudio: !v.isActiveInStudio } : v
+    );
+    setClonedVoices(updated);
+    onSaveConfig({ ...config, clonedVoices: updated });
+
+    try {
+      await fetch(`/api/admin/cloned-voices/${id}/toggle`, {
+        method: 'POST',
+        headers: { 'x-admin-email': 'pychannel1years@gmail.com' },
+      });
+    } catch {}
+  };
+
+  // Voice Cloning: Delete profile
+  const handleDeleteClone = async (id: string) => {
+    const updated = clonedVoices.filter((v) => v.id !== id);
+    setClonedVoices(updated);
+    onSaveConfig({ ...config, clonedVoices: updated });
+
+    try {
+      await fetch(`/api/admin/cloned-voices/${id}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-email': 'pychannel1years@gmail.com' },
+      });
+    } catch {}
+  };
+
+  // Voice Cloning: Audition preview
+  const handleAuditionClone = async (voice: ClonedVoiceProfile) => {
+    if (auditioningCloneId === voice.id) {
+      setAuditioningCloneId(null);
+      if (window.currentAudio) {
+        window.currentAudio.pause();
+        window.currentAudio = null;
+      }
+      return;
+    }
+
+    setAuditioningCloneId(voice.id);
+    const audioUrl = `/api/voice-audio/${encodeURIComponent(voice.id)}?text=${encodeURIComponent(
+      voice.samplePhraseBurmese || 'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်'
+    )}&gender=${encodeURIComponent(voice.gender)}&voiceName=${encodeURIComponent(
+      voice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural'
+    )}&pitchOffset=${voice.basePitchHz}&speedMultiplier=${voice.baseRateMultiplier}&basePitchHz=${voice.basePitchHz}`;
+
+    try {
+      if (window.currentAudio) {
+        window.currentAudio.pause();
+      }
+      const audio = new Audio(audioUrl);
+      window.currentAudio = audio;
+      audio.onended = () => setAuditioningCloneId(null);
+      audio.onerror = () => setAuditioningCloneId(null);
+      await audio.play();
+    } catch {
+      setAuditioningCloneId(null);
+    }
+  };
+
   // Save all Master Settings
   const handleSaveAll = () => {
     const updated: AdminConfig = {
@@ -250,6 +429,8 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
       maintenanceNotice,
       adminPin: newPin.trim() || '778899',
       verificationRequests: requests,
+      showVoiceClone,
+      clonedVoices,
     };
 
     onSaveConfig(updated);
@@ -477,6 +658,22 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>6. Live AI Playground</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('voice_clone')}
+                className={`px-3.5 py-2 rounded-t-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap border-t border-x relative ${
+                  activeTab === 'voice_clone'
+                    ? 'bg-slate-900 border-purple-500/60 text-purple-300 shadow'
+                    : 'border-transparent text-slate-400 hover:text-purple-300'
+                }`}
+              >
+                <Mic className="w-3.5 h-3.5 text-purple-400" />
+                <span>7. 🎙️ Voice Cloning Lab</span>
+                <span className="px-1.5 py-0.5 rounded bg-purple-900/80 border border-purple-500/40 text-[9px] font-mono text-purple-300 font-bold">
+                  SECRET ADMIN
+                </span>
               </button>
             </div>
 
@@ -952,7 +1149,329 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
               )}
 
               {/* ========================================================================= */}
-              {/* TAB 4: TTS & VOICE TUNER */}
+              {/* TAB 7: VOICE CLONING LAB (SECRET ADMIN FEATURE) */}
+              {/* ========================================================================= */}
+              {activeTab === 'voice_clone' && (
+                <div className="space-y-6 animate-fadeIn">
+                  {/* Master Feature Flag Banner */}
+                  <div className="p-5 rounded-2xl bg-gradient-to-r from-purple-950/70 via-slate-900/80 to-purple-900/40 border border-purple-500/50 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400">
+                            <Mic className="w-4 h-4" />
+                          </div>
+                          <h3 className="text-base font-bold text-white font-sans flex items-center gap-2">
+                            Secret Voice Cloning Lab (Admin Exclusive)
+                          </h3>
+                        </div>
+                        <p className="text-xs text-purple-200/80 font-burmese">
+                          အသံနမူနာ (Reference Audio) တင်သွင်းပြီး စိတ်ကြိုက် Burmese Neural Voice Profile များ ဖန်တီး၍ Studio Pipeline တွင် စမ်းသပ်နိုင်ပါသည်။
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowVoiceClone(!showVoiceClone)}
+                        className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-wide transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
+                          showVoiceClone
+                            ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/30 ring-2 ring-purple-400/50'
+                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                        }`}
+                      >
+                        {showVoiceClone ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                        <span>{showVoiceClone ? 'CLONING ACTIVE (TEST MODE)' : 'CLONING HIDDEN (SAFE)'}</span>
+                      </button>
+                    </div>
+
+                    {/* Secret Access Parameters & Admin Identity Verification Bar */}
+                    <div className="p-3 rounded-xl bg-slate-950/80 border border-purple-500/30 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 font-mono">Designated Admin:</span>
+                        <span className="font-mono text-purple-300 font-bold bg-purple-950/80 px-2 py-0.5 rounded border border-purple-500/40">
+                          pychannel1years@gmail.com
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 font-mono">Secret URL Query:</span>
+                        <code className="text-amber-400 font-mono font-bold bg-slate-900 px-2 py-0.5 rounded border border-white/10 select-all">
+                          ?admin_voice=true
+                        </code>
+                        <span className="text-[10px] text-slate-400">(or ?secret_clone=true)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Create New Cloned Voice Profile Panel */}
+                  <div className="p-5 rounded-2xl bg-slate-900/70 border border-white/10 space-y-4">
+                    <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                      <h4 className="text-sm font-bold text-white font-burmese flex items-center gap-2">
+                        <Plus className="w-4 h-4 text-purple-400" />
+                        အသံအသစ် Clone လုပ်ပြီး စနစ်ထဲ ထည့်သွင်းခြင်း (New Voice Profile)
+                      </h4>
+                      <span className="text-[11px] text-slate-400 font-mono">Acoustic Synthesizer Engine</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Name English */}
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-300">
+                          Voice Profile Name (English):
+                        </label>
+                        <input
+                          type="text"
+                          value={newCloneNameEn}
+                          onChange={(e) => setNewCloneNameEn(e.target.value)}
+                          placeholder="e.g. Ko Thant Dramatic Recap"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-xs text-white focus:outline-none focus:border-purple-400"
+                        />
+                      </div>
+
+                      {/* Name Burmese */}
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-300 font-burmese">
+                          အသံအမည် (မြန်မာအမည်):
+                        </label>
+                        <input
+                          type="text"
+                          value={newCloneNameMm}
+                          onChange={(e) => setNewCloneNameMm(e.target.value)}
+                          placeholder="ဥပမာ - ကိုသန့် (ဇာတ်လမ်းပြော ရုပ်ရှင်သံ)"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-xs text-white font-burmese focus:outline-none focus:border-purple-400"
+                        />
+                      </div>
+
+                      {/* Gender */}
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-300">
+                          Voice Gender (အမျိုးအစား):
+                        </label>
+                        <select
+                          value={newCloneGender}
+                          onChange={(e) => setNewCloneGender(e.target.value as 'male' | 'female')}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-xs text-white focus:outline-none focus:border-purple-400"
+                        >
+                          <option value="male">👨 Male Voice (အမျိုးသားအသံ)</option>
+                          <option value="female">👩 Female Voice (အမျိုးသမီးအသံ)</option>
+                        </select>
+                      </div>
+
+                      {/* Timbre & Acoustic Style */}
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-slate-300">
+                          Timbre & Cinematic Tone:
+                        </label>
+                        <select
+                          value={newCloneTimbre}
+                          onChange={(e) => setNewCloneTimbre(e.target.value as any)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-xs text-white focus:outline-none focus:border-purple-400"
+                        >
+                          <option value="dramatic_cinematic">🎬 Dramatic & Cinematic Movie Recap</option>
+                          <option value="deep_warm">🎙️ Deep, Resonant & Warm Narrator</option>
+                          <option value="crisp_clear">✨ Crisp, Clean & Expressive Documentary</option>
+                          <option value="energetic">⚡ Energetic & Fast-Paced Action Recap</option>
+                          <option value="smooth_recap">☕ Smooth, Relaxed & Storytelling</option>
+                        </select>
+                      </div>
+
+                      {/* Pitch Offset */}
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-300">Pitch Offset:</span>
+                          <span className="font-mono font-bold text-purple-400">{newClonePitch > 0 ? `+${newClonePitch}` : newClonePitch} Hz</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="-10"
+                          max="10"
+                          step="1"
+                          value={newClonePitch}
+                          onChange={(e) => setNewClonePitch(parseInt(e.target.value))}
+                          className="w-full accent-purple-500"
+                        />
+                      </div>
+
+                      {/* Speed Rate */}
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-300">Speed Multiplier:</span>
+                          <span className="font-mono font-bold text-purple-400">{newCloneSpeed}x</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.85"
+                          max="1.30"
+                          step="0.01"
+                          value={newCloneSpeed}
+                          onChange={(e) => setNewCloneSpeed(parseFloat(e.target.value))}
+                          className="w-full accent-purple-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Sample Phrase for Testing */}
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-semibold text-slate-300 font-burmese">
+                        စမ်းသပ်ရန် မြန်မာစကားပြော စာသား (Sample Audition Phrase):
+                      </label>
+                      <input
+                        type="text"
+                        value={newCloneSampleText}
+                        onChange={(e) => setNewCloneSampleText(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-white/15 text-xs text-white font-burmese focus:outline-none focus:border-purple-400"
+                      />
+                    </div>
+
+                    {/* Reference Audio File Upload */}
+                    <div className="p-4 rounded-xl bg-slate-950/60 border border-dashed border-purple-500/40 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Upload className="w-4 h-4 text-purple-400" />
+                          <span className="text-xs font-bold text-slate-200">
+                            Upload Reference Audio Sample (Optional MP3/WAV/M4A)
+                          </span>
+                        </div>
+                        {uploadedAudioFile && (
+                          <span className="text-[11px] font-mono text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
+                            ✓ {uploadedAudioFile.name} ({uploadedAudioFile.size})
+                          </span>
+                        )}
+                      </div>
+
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        onChange={handleAudioUpload}
+                        className="text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-500 cursor-pointer"
+                      />
+                      <p className="text-[10px] text-slate-400 font-burmese">
+                        * အသံဖိုင် တင်သွင်းပါက စနစ်က Acoustic Frequency Spectrum ကို တွက်ချက်ကာ အသံလွှာ တူညီအောင် ချိန်ညှိပေးပါမည်။
+                      </p>
+                    </div>
+
+                    {cloningStatusMsg && (
+                      <div className={`p-3 rounded-xl text-xs font-burmese flex items-center gap-2 animate-fadeIn ${
+                        cloningStatusMsg.success
+                          ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-300'
+                          : 'bg-red-950/60 border border-red-500/40 text-red-300'
+                      }`}>
+                        {cloningStatusMsg.success ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                        <span>{cloningStatusMsg.msg}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end pt-2">
+                      <button
+                        type="button"
+                        disabled={isCreatingClone || !newCloneNameEn.trim()}
+                        onClick={handleCreateClonedVoice}
+                        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-purple-600/30 flex items-center gap-2 cursor-pointer disabled:opacity-50 transition-all"
+                      >
+                        {isCreatingClone ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                        <span>Deploy Cloned Voice to Studio</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Cloned Voice Profiles List */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-2 font-burmese">
+                        <Radio className="w-3.5 h-3.5" />
+                        ဖန်တီးထားသော Cloned Voice Profiles ({clonedVoices.length})
+                      </h4>
+                      <span className="text-[11px] text-slate-400 font-burmese">
+                        Studio Step 3 တွင် Active အသံများကိုသာ အသုံးပြုနိုင်ပါမည်
+                      </span>
+                    </div>
+
+                    {clonedVoices.length === 0 ? (
+                      <div className="p-8 rounded-2xl bg-slate-900/40 border border-white/10 text-center space-y-2">
+                        <Mic className="w-8 h-8 text-slate-600 mx-auto" />
+                        <p className="text-xs text-slate-400 font-burmese">
+                          ဖန်တီးထားသော Cloned Voice Profile မရှိသေးပါ။ အပေါ်ရှိ Form မှတစ်ဆင့် အသံအသစ် ထည့်သွင်းနိုင်ပါသည်။
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {clonedVoices.map((voice) => (
+                          <div
+                            key={voice.id}
+                            className="p-4 rounded-2xl bg-slate-900/80 border border-purple-500/30 hover:border-purple-500/60 transition-all space-y-3 flex flex-col justify-between"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="space-y-0.5">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-sm text-white font-burmese">
+                                    {voice.nameBurmese}
+                                  </span>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-900/60 text-purple-300 font-mono border border-purple-500/30">
+                                    {voice.gender === 'male' ? '👨 Male' : '👩 Female'}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-slate-400 font-sans">{voice.nameEnglish}</div>
+                                <div className="text-[11px] text-purple-300/80 font-mono">
+                                  Pitch: {voice.basePitchHz > 0 ? `+${voice.basePitchHz}` : voice.basePitchHz}Hz &bull; Speed: {voice.baseRateMultiplier}x &bull; Style: {voice.timbreStyle}
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteClone(voice.id)}
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-all cursor-pointer"
+                                title="Delete Profile"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            <div className="p-2 rounded-xl bg-slate-950 border border-white/10 text-xs text-slate-300 font-burmese italic truncate">
+                              "{voice.samplePhraseBurmese || 'ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယို'}"
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1 border-t border-white/10">
+                              <button
+                                type="button"
+                                onClick={() => handleAuditionClone(voice)}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all ${
+                                  auditioningCloneId === voice.id
+                                    ? 'bg-purple-600 text-white shadow-md'
+                                    : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                                }`}
+                              >
+                                {auditioningCloneId === voice.id ? (
+                                  <>
+                                    <Square className="w-3 h-3" />
+                                    <span>Stop Audition</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Volume2 className="w-3 h-3 text-purple-400" />
+                                    <span>Audition Voice</span>
+                                  </>
+                                )}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleCloneActive(voice.id)}
+                                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                                  voice.isActiveInStudio
+                                    ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-300'
+                                    : 'bg-slate-800 text-slate-400'
+                                }`}
+                              >
+                                {voice.isActiveInStudio ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                                <span>{voice.isActiveInStudio ? 'Studio: Active' : 'Studio: Inactive'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               {/* ========================================================================= */}
               {activeTab === 'tts' && (
                 <div className="space-y-6 animate-fadeIn">
@@ -1030,6 +1549,50 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                           className="w-full accent-amber-500"
                         />
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Feature Flag: Voice Cloning Quick Toggle */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-slate-900/60 to-purple-950/30 border border-purple-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Mic className="w-4 h-4 text-purple-400" />
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-purple-300 font-burmese flex items-center gap-1.5">
+                          Voice Cloning Engine (Internal Secret Gate)
+                        </h4>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                          showVoiceClone
+                            ? 'bg-purple-900/80 text-purple-300 border-purple-500/50'
+                            : 'bg-slate-800 text-slate-400 border-white/10'
+                        }`}>
+                          {showVoiceClone ? 'FLAG: ON' : 'FLAG: OFF (DEFAULT HIDDEN)'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 font-burmese">
+                        ပုံမှန် User UI တွင် လုံးဝ ဖုံးကွယ်ထားပြီး Admin Profile (`pychannel1years@gmail.com`) နှင့် Secret Query URL (`?admin_voice=true`) ဖြင့်သာ စမ်းသပ်နိုင်ပါသည်။
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowVoiceClone(!showVoiceClone)}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                          showVoiceClone
+                            ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/30'
+                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                        }`}
+                      >
+                        {showVoiceClone ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                        <span>{showVoiceClone ? 'FEATURE ACTIVE' : 'FEATURE HIDDEN'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('voice_clone')}
+                        className="px-3 py-2 rounded-xl bg-purple-900/40 hover:bg-purple-900/70 text-purple-200 text-xs font-semibold border border-purple-500/30 transition-all cursor-pointer"
+                      >
+                        Voice Lab →
+                      </button>
                     </div>
                   </div>
 

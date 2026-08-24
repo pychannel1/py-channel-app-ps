@@ -12,20 +12,23 @@ export interface TranscriptSegment {
 
 export interface BurmeseVoiceAvatar {
   id: string;
-  code: string; // "BB", "NL", "PW", "KM", "ZK", "HS", "SL", "YS", "EC", "TS"
+  code: string; // "BB", "NL", "PW", "KM", "ZK", "HS", "SL", "YS", "EC", "TS", "CLONE"
   nameBurmese: string; // e.g. "ဘိုဘို"
   nameEnglish: string; // "Bo Bo"
   gender: 'male' | 'female';
   voiceName: 'my-MM-ThihaNeural' | 'my-MM-NilarNeural' | string;
-  voiceModel: 'my-MM-ThihaNeural' | 'my-MM-NilarNeural' | string;
+  voiceModel?: 'my-MM-ThihaNeural' | 'my-MM-NilarNeural' | string;
   toneCategory: string; // "Action / Thriller", "Documentary", etc.
-  description: string;
+  description?: string;
   basePitch: number; // e.g. -0.15
-  basePitchHz: number; // e.g. -10 to -30 Hz for male, 0 to +20 Hz for female
+  basePitchHz?: number; // e.g. -10 to -30 Hz for male, 0 to +20 Hz for female
+  pitchHz?: number;
   baseRate: number;  // e.g. 1.05
+  speedMultiplier?: number;
   avatarColor: string; // gradient color string
   samplePhraseBurmese: string;
   audioUrl?: string; // Stable persistent audio preview URL
+  category?: 'Narrator' | 'Character' | 'Host' | 'Presenter' | 'Cloned' | string;
 }
 
 export interface VoiceAudioRecord {
@@ -107,6 +110,34 @@ export interface PaymentVerificationRequest {
   status: 'pending' | 'approved' | 'rejected';
 }
 
+export interface ClonedVoiceProfile {
+  id: string;
+  code?: string;
+  nameEnglish: string;
+  nameBurmese: string;
+  gender: 'male' | 'female';
+  voiceName?: string;
+  voiceModel?: string;
+  toneCategory?: string;
+  timbreCategory?: string;
+  description?: string;
+  basePitch?: number;
+  basePitchHz?: number;
+  pitchHz?: number;
+  baseRate?: number;
+  baseRateMultiplier?: number;
+  speedMultiplier?: number;
+  avatarColor?: string;
+  samplePhraseBurmese?: string;
+  sampleAudioUrl?: string;
+  sampleAudioBase64?: string;
+  audioSampleUrl?: string;
+  referenceFileName?: string;
+  timbreStyle?: 'deep_warm' | 'crisp_clear' | 'energetic' | 'dramatic_cinematic' | 'smooth_recap' | string;
+  createdAt: number;
+  isActiveInStudio: boolean;
+}
+
 export interface AdminConfig {
   maintenanceMode: boolean;
   maintenanceNotice: string;
@@ -122,6 +153,8 @@ export interface AdminConfig {
   kpayEnabled: boolean;
   wavepayEnabled: boolean;
   adminPin: string;
+  showVoiceClone: boolean; // Feature flag for Voice Cloning (Hidden Admin-Only by default)
+  clonedVoices?: ClonedVoiceProfile[];
   verificationRequests: PaymentVerificationRequest[];
 }
 

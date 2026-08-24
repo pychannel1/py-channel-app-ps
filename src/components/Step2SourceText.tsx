@@ -18,13 +18,15 @@ import {
   CheckCircle2,
   ShieldCheck,
   RefreshCw,
+  Languages,
 } from 'lucide-react';
 
 interface Step2SourceTextProps {
   segments: TranscriptSegment[];
   onUpdateSegment: (id: string, newSourceText: string) => void;
+  onUpdateMyanmarSegment?: (id: string, text: string) => void;
   onTranslateWithDirectGeminiApi: () => void;
-  onSubmitExternalGeminiJson: (translations: string[] | { id?: string; myanmarText?: string; text?: string }[]) => void;
+  onSubmitExternalGeminiJson: (translations: any) => void;
   isTranslating: boolean;
   isModalOpen: boolean;
   onOpenModal: () => void;
@@ -36,6 +38,7 @@ interface Step2SourceTextProps {
 export const Step2SourceText: React.FC<Step2SourceTextProps> = ({
   segments,
   onUpdateSegment,
+  onUpdateMyanmarSegment,
   onTranslateWithDirectGeminiApi,
   onSubmitExternalGeminiJson,
   isTranslating,
@@ -111,41 +114,29 @@ export const Step2SourceText: React.FC<Step2SourceTextProps> = ({
     }
   };
 
-  // Generate full prompt tailored for copy-paste into Gemini App with dramatic, cinematic, and professional movie-recap narration
+  // Generate full prompt tailored for copy-paste into Gemini App with strict expert translation instruction
   const generateGeminiAppPrompt = () => {
     const lines = segments
-      .map((s, i) => `[Segment ${i + 1}] (${s.start} - ${s.end})\nSource: ${s.sourceText}`)
+      .map((s, i) => `[Segment ${i + 1}] (${s.id}) (${s.start} - ${s.end})\nSource: ${s.sourceText}`)
       .join('\n\n');
 
     return `SYSTEM INSTRUCTION:
-You are a master Myanmar movie-recap scriptwriter and cinematic narrator for "pY Channel".
-Your mission: Transform movie transcripts into dramatic, cinematic, and professional movie-recap style narration with natural pacing and high audience retention.
+You are an expert Myanmar translator for movie recaps. Translate the given English transcript segments accurately and completely into fluent, natural Myanmar. Do not truncate, alter meaning, or output broken sentences.
 
-CRITICAL MOVIE-RECAP NARRATION DIRECTIVES:
-1. DRAMATIC, CINEMATIC & PROFESSIONAL RECAP STYLE:
-   - Deliver an immersive, tension-filled, cinematic movie recap experience.
-   - Build suspense, highlight dramatic stakes, emotional climaxes, and heroic action sequences.
-   - Hook viewers with dynamic recap phrasing: "ဒီတစ်ခါမှာတော့...", "အဲဒီအချိန်မှာပဲ...", "ရုတ်တရက်...", "မထင်မှတ်ထားဘဲ...", "ဇာတ်လမ်းရဲ့ အလှည့်အပြောင်းမှာတော့...", "အခြေအနေတွေက ပိုမိုတင်းမာလာပြီး...".
-
-2. PURE SPOKEN BURMESE ONLY (စကားပြော ဇာတ်ကြောင်းပြောဟန် စစ်စစ်):
-   - STRICTLY write in fluent, natural conversational spoken Burmese designed for high-impact neural TTS voiceover.
-   - Use authentic spoken verb endings and particles: "တယ်", "ပါတယ်", "သွားတယ်", "ဖြစ်သွားတယ်", "လိုက်တယ်", "နေတယ်", "ရတော့မယ်", "ပေါ့နော်", "ဗျာ", "ရှင့်".
-   - STRICTLY FORBIDDEN: NEVER use archaic formal written grammar (e.g. NEVER use "သည်", "ပေသည်", "သတည်း", "လျက်", "ရာတွင်", "၌", "၏").
-
-3. PROSODIC NATURAL PACING & BREATHING MARKS (သဘာဝကျသော အသက်ရှူသံ အနားပေး စနစ်):
-   - Structure every sentence with natural rhythm and breath pauses for clear voice acting cadence.
-   - Insert Burmese comma (၊) for short 80-120ms natural breathing pauses between dramatic clauses and tension moments.
-   - Insert Burmese full stop (။) for 180-250ms cadence closures at the end of thoughts.
-   - Ensure syllable count per segment fits the video segment duration naturally without rushing.
-
-4. ACCURACY & FIDELITY:
-   - Translate faithfully sentence-by-sentence or segment-by-segment matching the source movie timeline without hallucinating or omitting critical narrative points.
-
-5. REQUIRED JSON OUTPUT FORMAT:
-Return ONLY a valid JSON object strictly matching this schema:
+CRITICAL TRANSLATION & FIDELITY INSTRUCTIONS:
+1. STRICT SENTENCE-BY-SENTENCE TRANSLATION:
+   - Faithfully translate every English segment into clean, natural spoken Myanmar.
+   - Do NOT summarize, truncate, cut off sentences, omit context, alter the story, or hallucinate random dialogue.
+   - Maintain the precise meaning, context, and tone of the original dialogue/narration.
+2. PURE SPOKEN BURMESE WITH PROPER PUNCTUATION:
+   - Use natural spoken Burmese conversational particles ("တယ်", "ပါတယ်", "သွားတယ်", "ဖြစ်သွားတယ်", "လိုက်တယ်", "နေတယ်", "ရတော့မယ်", "ပေါ့နော်").
+   - Prohibit archaic formal written words ("သည်", "၏", "၌", "သတည်း", "လျက်").
+   - Insert Burmese comma (၊) and Burmese full stop (။) for natural cadence and breathing pauses.
+3. OUTPUT FORMAT:
+   Return ONLY a valid JSON object matching this schema with all segment IDs preserved:
 {
   "translations": [
-${segments.map((_, i) => `    "Segment ${i + 1} ဇာတ်ရှိန်မြင့်မားပြီး သဘာဝကျသော စကားပြော ဇာတ်လမ်းရီကပ် စာသား..."`).join(',\n')}
+${segments.map((s) => `    { "id": "${s.id}", "myanmarText": "သဘာဝကျသော စကားပြော ဇာတ်လမ်းရီကပ် မြန်မာဘာသာပြန် စာသား..." }`).join(',\n')}
   ]
 }
 
@@ -196,12 +187,14 @@ ${lines}
       }
 
       const parsed = JSON.parse(cleaned);
-      let list: string[] = [];
+      let list: any[] = [];
 
       if (Array.isArray(parsed)) {
-        list = parsed.map(item => (typeof item === 'string' ? item : item.myanmarText || item.text || ''));
+        list = parsed;
       } else if (parsed.translations && Array.isArray(parsed.translations)) {
-        list = parsed.translations.map((item: any) => (typeof item === 'string' ? item : item.myanmarText || item.text || ''));
+        list = parsed.translations;
+      } else if (typeof parsed === 'object') {
+        list = Object.entries(parsed).map(([k, v]) => ({ id: k, myanmarText: typeof v === 'string' ? v : (v as any).myanmarText }));
       } else {
         throw new Error('JSON structure must contain an array or a "translations" key.');
       }
@@ -248,11 +241,11 @@ ${lines}
                 STEP 2
               </span>
               <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-                မူရင်းစာသားကို စစ်ဆေးပါ (Source Text & Translation Options)
+                မူရင်းစာသားနှင့် မြန်မာဘာသာပြန် စစ်ဆေးပါ (Source Text & Translation Options)
               </h2>
             </div>
             <p className="text-sm text-slate-300 font-burmese mt-1">
-              ဗီဒီယိုမှ ရရှိထားသော မူရင်းစကားပြော စာသားများကို စစ်ဆေးပြင်ဆင်ပြီး မြန်မာဘာသာပြန်ရန် နည်းလမ်းရွေးချယ်ပါ။
+              ဗီဒီယိုမှ ရရှိထားသော English စကားပြော စာသားများနှင့် မြန်မာဘာသာပြန်များကို စစ်ဆေးပြင်ဆင်ပြီး လိုအပ်သော ဘာသာပြန်စနစ်ကို ရွေးချယ်ပါ။
             </p>
           </div>
 
@@ -270,7 +263,7 @@ ${lines}
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5" />
-                  <span>📋 Copy Full Prompt</span>
+                  <span>📋 Copy Strict Prompt</span>
                 </>
               )}
             </button>
@@ -280,12 +273,13 @@ ${lines}
 
       {/* Main Grid: Segments Review Box & Translation Path Selector */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Timestamped Source Segments Review Box */}
-        <div className="lg:col-span-7 glass-panel rounded-2xl p-5 border border-white/10 flex flex-col h-[560px]">
+        {/* Left Column: Timestamped Source Segments & Matched Translation Box */}
+        <div className="lg:col-span-7 glass-panel rounded-2xl p-5 border border-white/10 flex flex-col h-[600px]">
           <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
-                Extracted Source Transcript ({segments.length} Segments)
+                <Languages className="w-4 h-4 text-amber-400" />
+                Source Transcript & Myanmar Alignment ({segments.length} Segments)
               </h3>
             </div>
             <button
@@ -298,8 +292,8 @@ ${lines}
             </button>
           </div>
 
-          {/* Scrollable list of segments */}
-          <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+          {/* Scrollable list of aligned segments */}
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1">
             {segments.length === 0 ? (
               <div className="h-full flex items-center justify-center text-slate-500 text-xs">
                 No segments extracted. Please go back to Step 1.
@@ -308,25 +302,62 @@ ${lines}
               segments.map((segment, idx) => (
                 <div
                   key={segment.id}
-                  className="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 hover:border-amber-500/30 transition-all space-y-2 group"
+                  className="p-4 rounded-xl bg-slate-900/90 border border-white/10 hover:border-amber-500/40 transition-all space-y-3 shadow-md"
                 >
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-400 flex items-center gap-1">
+                    <span className="font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-400 flex items-center gap-1 border border-amber-500/20">
                       <Clock className="w-3 h-3" />
                       {segment.start} &rarr; {segment.end}
                     </span>
-                    <span className="text-slate-500 text-[10px] flex items-center gap-1">
-                      <Edit3 className="w-3 h-3" /> Segment #{idx + 1}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {segment.myanmarText && segment.myanmarText.trim().length > 0 ? (
+                        <span className="px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 text-[10px] flex items-center gap-1 font-mono">
+                          <Check className="w-2.5 h-2.5" /> Translated
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-mono">
+                          Ready for Translation
+                        </span>
+                      )}
+                      <span className="text-slate-400 text-[10px] flex items-center gap-1">
+                        <Edit3 className="w-3 h-3" /> #{idx + 1}
+                      </span>
+                    </div>
                   </div>
 
-                  <textarea
-                    rows={2}
-                    value={segment.sourceText}
-                    onChange={(e) => onUpdateSegment(segment.id, e.target.value)}
-                    className="w-full bg-slate-950/60 rounded-lg p-2.5 text-xs text-slate-200 border border-white/5 focus:border-amber-500/50 focus:outline-none resize-none font-sans"
-                    placeholder="Enter or edit source text..."
-                  />
+                  {/* English Source Dialogue Box */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold tracking-wider uppercase">
+                      <span>🇬🇧 Source English Dialogue:</span>
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={segment.sourceText}
+                      onChange={(e) => onUpdateSegment(segment.id, e.target.value)}
+                      className="w-full bg-slate-950/80 rounded-lg p-2.5 text-xs text-slate-200 border border-white/10 focus:border-amber-500/50 focus:outline-none resize-none font-sans leading-relaxed"
+                      placeholder="Enter or edit source text..."
+                    />
+                  </div>
+
+                  {/* Matched Myanmar Translation Box */}
+                  {segment.myanmarText && segment.myanmarText.trim().length > 0 && (
+                    <div className="space-y-1 pt-1 border-t border-white/5">
+                      <div className="flex items-center justify-between text-[10px] text-amber-400 font-semibold font-burmese">
+                        <span>🇲🇲 မြန်မာဘာသာပြန် ဇာတ်ကြောင်းပြော (Matching Myanmar Narration):</span>
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={segment.myanmarText}
+                        onChange={(e) => {
+                          if (onUpdateMyanmarSegment) {
+                            onUpdateMyanmarSegment(segment.id, e.target.value);
+                          }
+                        }}
+                        className="w-full bg-amber-950/20 rounded-lg p-2.5 text-xs text-amber-100 border border-amber-500/30 focus:border-amber-400 focus:outline-none resize-none font-burmese leading-relaxed"
+                        placeholder="မြန်မာဘာသာပြန် စာသား..."
+                      />
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -344,7 +375,7 @@ ${lines}
                 </h3>
               </div>
               <p className="text-xs text-slate-300 font-burmese leading-relaxed mb-4">
-                pY Channel စတိုင် မြန်မာစကားပြော ရုပ်ရှင်ဇာတ်လမ်းအနှစ်ချုပ် (Movie Recap) အဖြစ် ဘာသာပြန်ရန် အောက်ပါ Neon Purple Buttons ၂ ခုထဲမှ ရွေးချယ်ပါ:
+                ရုပ်ရှင်ဇာတ်လမ်းအနှစ်ချုပ် (Movie Recap) အဖြစ် တိကျမှန်ကန်သော မြန်မာစကားပြော ဘာသာပြန်ရန် အောက်ပါ ခလုတ် ၂ ခုထဲမှ ရွေးချယ်ပါ:
               </p>
 
               <div className="space-y-4">
@@ -361,7 +392,7 @@ ${lines}
                   </div>
 
                   <p className="text-[11px] text-slate-300 font-burmese leading-relaxed">
-                    အချိန်ကိုက် ဘာသာပြန်ရန် System Prompt ကို Auto-copy လုပ်ပေးပြီး Gemini App/Web တွင် အသုံးပြုရန် JSON response ကူးထည့်နိုင်သည့် Modal ပွင့်လာမည်။
+                    အချိန်ကိုက် ဘာသာပြန်ရန် Strict System Prompt ကို Auto-copy လုပ်ပေးပြီး Gemini App/Web တွင် အသုံးပြုရန် JSON response ကူးထည့်နိုင်သည့် Modal ပွင့်လာမည်။
                   </p>
 
                   <button
@@ -377,7 +408,7 @@ ${lines}
                   {copiedPrompt && (
                     <div className="p-2.5 rounded-lg bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[11px] font-burmese flex items-center justify-center gap-1.5 animate-fadeIn">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Prompt စာသားကို Auto-Copy ကူးယူပြီးပါပြီ။ Gemini App တွင် Paste (Ctrl+V) ချ၍ မေးမြန်းနိုင်ပါသည်။</span>
+                      <span>Strict Prompt စာသားကို Auto-Copy ကူးယူပြီးပါပြီ။ Gemini App တွင် Paste (Ctrl+V) ချ၍ မေးမြန်းနိုင်ပါသည်။</span>
                     </div>
                   )}
                 </div>
@@ -395,7 +426,7 @@ ${lines}
                   </div>
 
                   <p className="text-[11px] text-slate-300 font-burmese leading-relaxed">
-                    အပြင်ထွက်စရာမလိုဘဲ သိမ်းဆည်းထားသော Gemini API Key ဖြင့် တိုက်ရိုက်ခေါ်ယူပြီး Step 3 သို့ ချက်ချင်း အလိုအလျောက် ဘာသာပြန်ပေးမည်။
+                    အပြင်ထွက်စရာမလိုဘဲ သိမ်းဆည်းထားသော Gemini API Key ဖြင့် တိုက်ရိုက်ခေါ်ယူပြီး တိကျမှန်ကန်သော မြန်မာဘာသာပြန်ဖြင့် Step 3 သို့ ချက်ချင်း အလိုအလျောက် သွားပါမည်။
                   </p>
 
                   {/* Missing Gemini Key Warning Alert */}
@@ -418,7 +449,7 @@ ${lines}
                     {isTranslating ? (
                       <>
                         <Sparkles className="w-4 h-4 animate-spin text-purple-200" />
-                        <span className="font-burmese">AI မြန်မာဘာသာပြန်နေပါသည်...</span>
+                        <span className="font-burmese">AI တိကျစွာ ဘာသာပြန်နေပါသည်...</span>
                       </>
                     ) : (
                       <>
@@ -540,7 +571,7 @@ ${lines}
             <div className="space-y-2">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                  <span>၁။ Gemini App သို့ ပေးပို့ရမည့် Prompt</span>
+                  <span>၁။ Gemini App သို့ ပေးပို့ရမည့် Strict Prompt</span>
                 </label>
                 <div className="flex items-center gap-2">
                   <button
@@ -559,7 +590,7 @@ ${lines}
                     className="px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center gap-1 cursor-pointer"
                   >
                     {copiedPrompt ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedPrompt ? 'Copied!' : 'Copy Prompt'}</span>
+                    <span>{copiedPrompt ? 'Copied!' : 'Copy Strict Prompt'}</span>
                   </button>
                 </div>
               </div>
@@ -597,7 +628,10 @@ ${lines}
                   type="button"
                   onClick={() => {
                     const sample = {
-                      translations: segments.map((s) => s.myanmarText || 'မြန်မာဘာသာပြန် ဇာတ်လမ်းပြော စာသား...'),
+                      translations: segments.map((s) => ({
+                        id: s.id,
+                        myanmarText: s.myanmarText || 'သဘာဝကျသော စကားပြော ဇာတ်လမ်းရီကပ် မြန်မာစာသား...',
+                      })),
                     };
                     setJsonInput(JSON.stringify(sample, null, 2));
                   }}
@@ -611,7 +645,7 @@ ${lines}
                 rows={6}
                 value={jsonInput}
                 onChange={(e) => setJsonInput(e.target.value)}
-                placeholder={`{\n  "translations": [\n    "Segment 1 မြန်မာဘာသာပြန် စာသား...",\n    "Segment 2 မြန်မာဘာသာပြန် စာသား..."\n  ]\n}`}
+                placeholder={`{\n  "translations": [\n    {\n      "id": "${segments[0]?.id || 'seg-1'}",\n      "myanmarText": "မြန်မာဘာသာပြန် စာသား..."\n    }\n  ]\n}`}
                 className="w-full bg-slate-900/90 rounded-xl p-3 text-xs font-mono text-emerald-300 placeholder-slate-600 border border-emerald-500/30 focus:border-emerald-500 focus:outline-none"
               />
 

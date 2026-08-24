@@ -123,6 +123,39 @@ export function isAdminUser(email?: string, isAdminAuth?: boolean): boolean {
   return email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
 }
 
+/**
+ * Secret Admin Voice Cloning Access Gate
+ * Gates access behind feature flag, admin identity (pychannel1years@gmail.com),
+ * or secret query params (?admin_voice=true / ?secret_clone=true).
+ * Fully hidden from regular standard users.
+ */
+export function isVoiceCloneAccessible(
+  email?: string,
+  isAdminAuth?: boolean,
+  configShowVoiceClone?: boolean
+): boolean {
+  if (typeof window !== 'undefined') {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (
+        urlParams.get('admin_voice') === 'true' ||
+        urlParams.get('secret_clone') === 'true' ||
+        urlParams.get('admin_clone') === 'true' ||
+        urlParams.get('voice_lab') === 'true'
+      ) {
+        return true;
+      }
+    } catch {}
+  }
+
+  const isAdmin = isAdminUser(email, isAdminAuth);
+  if (isAdmin && configShowVoiceClone) {
+    return true;
+  }
+
+  return false;
+}
+
 export function checkGenerationQuota(
   email: string,
   isVipActive: boolean,

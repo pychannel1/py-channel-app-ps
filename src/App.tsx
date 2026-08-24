@@ -462,22 +462,56 @@ function MainStudioApp() {
   };
 
   const handleSubmitExternalGeminiJson = (
-    translations: string[] | { id?: string; myanmarText?: string; text?: string }[]
+    translations: any
   ) => {
-    if (!translations || translations.length === 0) return;
+    if (!translations) return;
+
+    let transList: any[] = [];
+    let transMap: Map<string, string> = new Map();
+
+    if (Array.isArray(translations)) {
+      transList = translations;
+      translations.forEach((item: any, idx: number) => {
+        if (item && typeof item === 'object') {
+          const key = item.id || `seg-${idx + 1}`;
+          const val = item.myanmarText || item.text || '';
+          if (val) transMap.set(key, val);
+        } else if (typeof item === 'string') {
+          transMap.set(`idx-${idx}`, item);
+        }
+      });
+    } else if (typeof translations === 'object') {
+      if (Array.isArray(translations.translations)) {
+        transList = translations.translations;
+        translations.translations.forEach((item: any, idx: number) => {
+          if (item && typeof item === 'object') {
+            const key = item.id || `seg-${idx + 1}`;
+            const val = item.myanmarText || item.text || '';
+            if (val) transMap.set(key, val);
+          } else if (typeof item === 'string') {
+            transMap.set(`idx-${idx}`, item);
+          }
+        });
+      } else {
+        // Direct key-value dictionary { "aai-seg-1": "Myanmar text..." }
+        Object.entries(translations).forEach(([k, v]) => {
+          if (typeof v === 'string') transMap.set(k, v);
+        });
+      }
+    }
+
+    if (transList.length === 0 && transMap.size === 0) return;
 
     setSegments((prev) =>
       prev.map((seg, idx) => {
-        const item = translations[idx];
-        let mmText = '';
-        if (typeof item === 'string') {
-          mmText = item;
-        } else if (item && typeof item === 'object') {
-          mmText = item.myanmarText || item.text || '';
+        let mmText = transMap.get(seg.id) || transMap.get(`aai-seg-${idx + 1}`) || transMap.get(`idx-${idx}`);
+        if (!mmText && transList[idx]) {
+          const item = transList[idx];
+          mmText = typeof item === 'string' ? item : item.myanmarText || item.text || '';
         }
         return {
           ...seg,
-          myanmarText: mmText.trim() || seg.myanmarText,
+          myanmarText: (mmText && typeof mmText === 'string' && mmText.trim()) ? mmText.trim() : seg.myanmarText,
         };
       })
     );
@@ -505,8 +539,28 @@ function MainStudioApp() {
     );
   };
 
-  const selectedVoice =
-    BURMESE_VOICE_AVATARS.find((v) => v.id === selectedVoiceId) || BURMESE_VOICE_AVATARS[0];
+  const matchedClonedVoice = (adminConfig.clonedVoices || []).find((c) => c.id === selectedVoiceId);
+  const selectedVoice: BurmeseVoiceAvatar = matchedClonedVoice
+    ? {
+        id: matchedClonedVoice.id,
+        code: 'CLONE',
+        nameBurmese: matchedClonedVoice.nameBurmese,
+        nameEnglish: matchedClonedVoice.nameEnglish,
+        gender: matchedClonedVoice.gender,
+        basePitch: matchedClonedVoice.basePitch || 0,
+        basePitchHz: matchedClonedVoice.basePitchHz || 0,
+        pitchHz: matchedClonedVoice.basePitchHz || 0,
+        baseRate: matchedClonedVoice.baseRate || matchedClonedVoice.baseRateMultiplier || 1.0,
+        speedMultiplier: matchedClonedVoice.baseRateMultiplier || 1.0,
+        voiceName: matchedClonedVoice.gender === 'male' ? 'my-MM-ThihaNeural' : 'my-MM-NilarNeural',
+        avatarColor: matchedClonedVoice.gender === 'male' ? 'from-amber-600 to-orange-700' : 'from-purple-600 to-pink-600',
+        toneCategory: `${matchedClonedVoice.timbreCategory || matchedClonedVoice.timbreStyle || 'Cloned'} • Custom Profile`,
+        samplePhraseBurmese:
+          matchedClonedVoice.samplePhraseBurmese ||
+          'မင်္ဂလာပါ ရုပ်ရှင်ဇာတ်လမ်းပြော စတူဒီယိုမှ ကြိုဆိုပါသည်',
+        category: 'Cloned',
+      }
+    : BURMESE_VOICE_AVATARS.find((v) => v.id === selectedVoiceId) || BURMESE_VOICE_AVATARS[0];
 
   const handlePlayVoicePreview = (
     customText?: string,
@@ -762,6 +816,7 @@ function MainStudioApp() {
           <Step2SourceText
             segments={segments}
             onUpdateSegment={handleUpdateSegmentSource}
+            onUpdateMyanmarSegment={handleUpdateMyanmarSegment}
             onTranslateWithDirectGeminiApi={handleTranslateWithDirectGeminiApi}
             onSubmitExternalGeminiJson={handleSubmitExternalGeminiJson}
             isTranslating={isTranslating}
@@ -782,6 +837,10 @@ function MainStudioApp() {
             speedMultiplier={speedMultiplier}
             isSynthesizingVoice={isSynthesizingVoice}
             isPlayingPreview={isPlayingVoicePreview}
+            userEmail={userEmail}
+            isAdminAuthenticated={isAdminAuthenticated}
+            showVoiceClone={adminConfig.showVoiceClone}
+            clonedVoices={adminConfig.clonedVoices}
             onSelectVoice={(id) => {
               setSelectedVoiceId(id);
             }}
