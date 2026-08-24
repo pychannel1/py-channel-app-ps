@@ -1,4 +1,4 @@
-import { generateMultiEngineMyanmarTTS } from './_ttsCore';
+import { generateMultiEngineMyanmarTTS } from './stream-tts';
 
 export async function POST(req: Request): Promise<Response> {
   try {

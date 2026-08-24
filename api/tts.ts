@@ -1,4 +1,4 @@
-import { synthesizeWithEdgeTTS } from '../src/server/edgeTTS';
+import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
 /**
  * Fail-Proof Multi-Engine Myanmar Voice AI Pipeline (Edge Neural TTS + Multi-Provider Fallbacks)
@@ -29,7 +29,6 @@ const serverlessTtsCache = new Map<string, { buffer: Buffer; source: any; voiceN
 
 // Minimal valid silent MP3 frame buffer (104 bytes valid MPEG-1 Layer 3 audio frame)
 function createFallbackAudioFrame(): Buffer {
-  // Valid minimal MP3 frame header: 0xFF, 0xFB (MPEG 1 Layer 3, no CRC, 128kbps, 44.1kHz)
   const header = Buffer.from([
     0xff, 0xfb, 0x90, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -42,6 +41,164 @@ function createFallbackAudioFrame(): Buffer {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
   ]);
   return Buffer.concat([header, header, header, header]);
+}
+
+function splitBurmeseTextIntoChunks(rawText: string, maxChunkLength = 180): string[] {
+  const clean = rawText.trim();
+  if (!clean) return [];
+
+  const parts = clean.split(/([။၊\n\r!?.…]+)/);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (current.length + part.length <= maxChunkLength) {
+      current += part;
+    } else {
+      if (current.trim()) chunks.push(current.trim());
+      if (part.length > maxChunkLength) {
+        for (let j = 0; j < part.length; j += maxChunkLength) {
+          const sub = part.slice(j, j + maxChunkLength).trim();
+          if (sub) chunks.push(sub);
+        }
+        current = '';
+      } else {
+        current = part;
+      }
+    }
+  }
+
+  if (current.trim()) chunks.push(current.trim());
+  return chunks.filter((c) => c.length > 0);
+}
+
+async function synthesizeSingleEdgeChunk(
+  chunkText: string,
+  targetVoice: 'my-MM-ThihaNeural' | 'my-MM-NilarNeural',
+  pitchHz: number = 0,
+  rateMultiplier: number = 1.0
+): Promise<Buffer> {
+  const tts = new MsEdgeTTS();
+  await tts.setMetadata(targetVoice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+
+  const safePitch = Math.max(-6, Math.min(6, Math.round(pitchHz || 0)));
+  const pitchStr = safePitch >= 0 ? `+${safePitch}Hz` : `${safePitch}Hz`;
+
+  const safeRate = Math.max(0.75, Math.min(1.4, Number(rateMultiplier) || 1.0));
+  const ratePercent = Math.round((safeRate - 1.0) * 100);
+  const rateStr = ratePercent >= 0 ? `+${ratePercent}%` : `${ratePercent}%`;
+
+  const { audioStream } = tts.toStream(chunkText, {
+    pitch: pitchStr,
+    rate: rateStr,
+  });
+
+  return await new Promise<Buffer>((resolve, reject) => {
+    const audioChunks: Buffer[] = [];
+    let isDone = false;
+
+    const cleanup = () => {
+      try {
+        (tts as any)._ws?.close();
+      } catch {}
+    };
+
+    const timeout = setTimeout(() => {
+      if (!isDone) {
+        isDone = true;
+        cleanup();
+        if (audioChunks.length > 0) {
+          resolve(Buffer.concat(audioChunks));
+        } else {
+          reject(new Error(`Edge TTS synthesis timed out for voice ${targetVoice}`));
+        }
+      }
+    }, 10000);
+
+    audioStream.on('data', (chunk: Buffer) => {
+      audioChunks.push(chunk);
+    });
+
+    audioStream.on('end', () => {
+      if (!isDone) {
+        isDone = true;
+        clearTimeout(timeout);
+        cleanup();
+        if (audioChunks.length > 0) {
+          resolve(Buffer.concat(audioChunks));
+        } else {
+          reject(new Error(`Empty audio stream received for voice ${targetVoice}`));
+        }
+      }
+    });
+
+    audioStream.on('error', (err: Error) => {
+      if (!isDone) {
+        isDone = true;
+        clearTimeout(timeout);
+        cleanup();
+        if (audioChunks.length > 0) {
+          resolve(Buffer.concat(audioChunks));
+        } else {
+          reject(err);
+        }
+      }
+    });
+  });
+}
+
+async function synthesizeWithEdgeTTSInternal(options: {
+  text: string;
+  voiceName?: string;
+  gender?: 'male' | 'female' | string;
+  pitchHz?: number;
+  rateMultiplier?: number;
+}): Promise<Buffer> {
+  const { text, voiceName, gender, pitchHz = 0, rateMultiplier = 1.0 } = options;
+  const cleanText = text.trim();
+  if (!cleanText) {
+    throw new Error('Text cannot be empty for TTS synthesis');
+  }
+
+  let targetVoice: 'my-MM-ThihaNeural' | 'my-MM-NilarNeural' = 'my-MM-NilarNeural';
+  if (gender === 'male' || (typeof voiceName === 'string' && voiceName.includes('Thiha'))) {
+    targetVoice = 'my-MM-ThihaNeural';
+  } else if (gender === 'female' || (typeof voiceName === 'string' && voiceName.includes('Nilar'))) {
+    targetVoice = 'my-MM-NilarNeural';
+  } else if (typeof voiceName === 'string' && voiceName.toLowerCase().includes('male')) {
+    targetVoice = voiceName.toLowerCase().includes('female') ? 'my-MM-NilarNeural' : 'my-MM-ThihaNeural';
+  }
+
+  if (cleanText.length <= 200) {
+    return await synthesizeSingleEdgeChunk(cleanText, targetVoice, pitchHz, rateMultiplier);
+  }
+
+  const sentenceChunks = splitBurmeseTextIntoChunks(cleanText, 180);
+  if (sentenceChunks.length === 0) sentenceChunks.push(cleanText);
+
+  const batchSize = 4;
+  const collectedBuffers: Buffer[] = [];
+
+  for (let i = 0; i < sentenceChunks.length; i += batchSize) {
+    const batch = sentenceChunks.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(
+      batch.map((chunk) => synthesizeSingleEdgeChunk(chunk, targetVoice, pitchHz, rateMultiplier))
+    );
+
+    for (let j = 0; j < batchResults.length; j++) {
+      const res = batchResults[j];
+      if (res.status === 'fulfilled' && res.value && res.value.length > 50) {
+        collectedBuffers.push(res.value);
+      }
+    }
+  }
+
+  if (collectedBuffers.length > 0) {
+    return Buffer.concat(collectedBuffers);
+  }
+
+  return await synthesizeSingleEdgeChunk(cleanText.substring(0, 200), targetVoice, pitchHz, rateMultiplier);
 }
 
 /**
@@ -81,12 +238,11 @@ export async function generateMultiEngineMyanmarTTS(
     };
   }
 
-  // 1. Primary Engine: Microsoft Edge Neural Voice (Thiha = Male, Nilar = Female)
+  // 1. Primary Engine: Microsoft Edge Neural Voice
   try {
-    const edgeAudio = await synthesizeWithEdgeTTS({
+    const edgeAudio = await synthesizeWithEdgeTTSInternal({
       text: cleanText,
       voiceName: selectedVoice,
-      gender: isMale ? 'male' : 'female',
       pitchHz,
       rateMultiplier: speed,
     });
@@ -105,7 +261,7 @@ export async function generateMultiEngineMyanmarTTS(
       };
     }
   } catch (e) {
-    // Expected fallback on Edge network hiccups
+    // Continue to next engine
   }
 
   // 2. Secondary Engine: StreamElements Edge Neural Proxy
@@ -117,7 +273,6 @@ export async function generateMultiEngineMyanmarTTS(
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        Accept: 'audio/mpeg,audio/*;q=0.9,*/*;q=0.8',
       },
     });
 
@@ -139,7 +294,7 @@ export async function generateMultiEngineMyanmarTTS(
       }
     }
   } catch (e) {
-    // Continue to Google TTS fallback
+    // Continue to Google TTS
   }
 
   // 3. Tertiary Engine: Google Speech Stream Proxy (tw-ob & gtx endpoints)
@@ -176,7 +331,7 @@ export async function generateMultiEngineMyanmarTTS(
         }
       }
     } catch (e) {
-      // Try next endpoint
+      // Try next
     }
   }
 
@@ -206,7 +361,7 @@ export async function generateMultiEngineMyanmarTTS(
     // Continue to guaranteed fallback
   }
 
-  // 5. Guaranteed Safe Fallback: Generate valid fallback audio frame (Zero 500 error guarantee)
+  // 5. Guaranteed Safe Fallback: Generate valid fallback audio frame
   const safeFrame = createFallbackAudioFrame();
   return {
     audioBuffer: safeFrame,
@@ -251,14 +406,16 @@ export async function POST(req: Request): Promise<Response> {
       },
     });
   } catch (err: any) {
-    const fallbackBuffer = createFallbackAudioFrame();
-    return new Response(fallbackBuffer, {
+    console.error('api/tts POST error (safe fallback):', err);
+    const fallback = createFallbackAudioFrame();
+    return new Response(fallback, {
       status: 200,
       headers: {
         'Content-Type': 'audio/mpeg',
-        'Content-Length': fallbackBuffer.length.toString(),
+        'Content-Length': fallback.length.toString(),
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'public, max-age=86400',
+        'Accept-Ranges': 'bytes',
       },
     });
   }
@@ -271,8 +428,8 @@ export async function GET(req: Request): Promise<Response> {
     const voiceGender = url.searchParams.get('gender') || url.searchParams.get('voiceGender') || 'female';
     const voice = url.searchParams.get('voice') || url.searchParams.get('voiceName') || '';
     const voiceId = url.searchParams.get('voiceId') || url.searchParams.get('voice_id') || '';
-    const speed = Number(url.searchParams.get('rate') || url.searchParams.get('speed') || url.searchParams.get('speedMultiplier')) || 1.0;
-    const pitchOffset = Number(url.searchParams.get('pitch') || url.searchParams.get('pitchOffset')) || 0;
+    const speed = Number(url.searchParams.get('speedMultiplier') || url.searchParams.get('rate') || url.searchParams.get('speed')) || 1.0;
+    const pitchOffset = Number(url.searchParams.get('pitchOffset') || url.searchParams.get('pitch')) || 0;
     const basePitchHz = url.searchParams.get('basePitchHz') ? Number(url.searchParams.get('basePitchHz')) : undefined;
 
     const result = await generateMultiEngineMyanmarTTS({
@@ -296,23 +453,26 @@ export async function GET(req: Request): Promise<Response> {
         'Access-Control-Allow-Headers': 'Content-Type, Authorization, Range',
         'Cache-Control': 'public, max-age=86400',
         'Accept-Ranges': 'bytes',
+        'X-TTS-Engine': result.source,
+        'X-TTS-Voice': result.voiceName,
       },
     });
   } catch (err: any) {
-    const fallbackBuffer = createFallbackAudioFrame();
-    return new Response(fallbackBuffer, {
+    console.error('api/tts GET error (safe fallback):', err);
+    const fallback = createFallbackAudioFrame();
+    return new Response(fallback, {
       status: 200,
       headers: {
         'Content-Type': 'audio/mpeg',
-        'Content-Length': fallbackBuffer.length.toString(),
+        'Content-Length': fallback.length.toString(),
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'public, max-age=86400',
+        'Accept-Ranges': 'bytes',
       },
     });
   }
 }
 
-// Standard Vercel Serverless Function export (Node runtime)
 export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -323,21 +483,21 @@ export default async function handler(req: any, res: any) {
 
   try {
     const isPost = req.method === 'POST';
-    const text = (isPost ? (req.body?.text || req.body?.sampleText) : (req.query?.text || req.query?.sampleText)) || 'မင်္ဂလာပါ';
-    const voiceGender = (isPost ? (req.body?.voiceGender || req.body?.gender) : (req.query?.gender || req.query?.voiceGender)) || 'female';
-    const voice = (isPost ? (req.body?.voice || req.body?.voiceName || req.body?.voiceModel) : (req.query?.voice || req.query?.voiceName || req.query?.voiceModel)) || '';
+    const text = ((isPost ? (req.body?.text || req.body?.sampleText) : (req.query?.text || req.query?.sampleText)) || 'မင်္ဂလာပါ').trim();
+    const gender = (isPost ? (req.body?.gender || req.body?.voiceGender) : (req.query?.gender || req.query?.voiceGender)) || 'female';
+    const voice = (isPost ? (req.body?.voice || req.body?.voiceName) : (req.query?.voice || req.query?.voiceName)) || '';
     const voiceId = (isPost ? (req.body?.voiceId || req.body?.voice_id) : (req.query?.voiceId || req.query?.voice_id)) || '';
-    const speed = Number(isPost ? (req.body?.speed ?? req.body?.rate ?? req.body?.speedMultiplier) : (req.query?.speed ?? req.query?.rate ?? req.query?.speedMultiplier)) || 1.0;
+    const speed = Number(isPost ? (req.body?.speedMultiplier ?? req.body?.rate ?? req.body?.speed) : (req.query?.speedMultiplier ?? req.query?.rate ?? req.query?.speed)) || 1.0;
     const pitchOffset = Number(isPost ? (req.body?.pitchOffset ?? req.body?.pitch) : (req.query?.pitchOffset ?? req.query?.pitch)) || 0;
     const basePitchHz = isPost ? (req.body?.basePitchHz ? Number(req.body.basePitchHz) : undefined) : (req.query?.basePitchHz ? Number(req.query.basePitchHz) : undefined);
     const format = (isPost ? req.body?.format : req.query?.format) || '';
 
     const result = await generateMultiEngineMyanmarTTS({
-      text: String(text).trim(),
-      voiceGender: String(voiceGender),
-      voice: String(voice),
-      voiceName: String(voice),
-      voiceId: String(voiceId),
+      text,
+      voiceGender: gender,
+      voice,
+      voiceName: voice,
+      voiceId,
       speed,
       pitchOffset,
       basePitchHz,
@@ -361,13 +521,12 @@ export default async function handler(req: any, res: any) {
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Content-Length', result.audioBuffer.length);
     return res.status(200).send(result.audioBuffer);
-  } catch (error: any) {
-    console.error('Vercel serverless TTS safe fallback triggered:', error);
-    const fallbackBuffer = createFallbackAudioFrame();
+  } catch (err: any) {
+    console.error('api/tts handler error:', err);
+    const fallback = createFallbackAudioFrame();
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Content-Length', fallbackBuffer.length);
-    return res.status(200).send(fallbackBuffer);
+    res.setHeader('Content-Length', fallback.length);
+    return res.status(200).send(fallback);
   }
 }
-

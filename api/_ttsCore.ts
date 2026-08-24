@@ -1,1 +1,1 @@
-export * from '../src/server/ttsCore';
+export * from './stream-tts';

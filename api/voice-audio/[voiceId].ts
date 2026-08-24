@@ -1,4 +1,4 @@
-import { generateMultiEngineMyanmarTTS } from '../_ttsCore';
+import { generateMultiEngineMyanmarTTS } from '../stream-tts';
 import { BURMESE_VOICE_AVATARS } from '../../src/data/burmeseVoices';
 
 export async function GET(req: Request): Promise<Response> {

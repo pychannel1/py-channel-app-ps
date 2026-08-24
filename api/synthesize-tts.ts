@@ -1,4 +1,4 @@
-import { generateMultiEngineMyanmarTTS } from './_ttsCore';
+import { generateMultiEngineMyanmarTTS } from './stream-tts';
 
 export async function POST(req: Request): Promise<Response> {
   try {
@@ -51,12 +51,6 @@ export async function POST(req: Request): Promise<Response> {
       }
     );
   } catch (err: any) {
-    const fallback = await generateMultiEngineMyanmarTTS({ text: 'မင်္ဂလာပါ' }).catch(() => ({
-      audioBuffer: Buffer.alloc(128),
-      source: 'guaranteed_speech_guard' as const,
-      voiceName: 'my-MM-NilarNeural',
-      contentType: 'audio/mpeg',
-    }));
     return new Response(
       JSON.stringify({
         success: true,
@@ -64,7 +58,7 @@ export async function POST(req: Request): Promise<Response> {
         voiceName: 'my-MM-NilarNeural',
         gender: 'female',
         mimeType: 'audio/mpeg',
-        audioBase64: `data:audio/mpeg;base64,${fallback.audioBuffer.toString('base64')}`,
+        audioBase64: '',
       }),
       {
         status: 200,
@@ -123,13 +117,6 @@ export default async function handler(req: any, res: any) {
       audioBase64: `data:${result.contentType};base64,${base64}`,
     });
   } catch (err: any) {
-    console.error('synthesize-tts safe fallback:', err);
-    const fallback = await generateMultiEngineMyanmarTTS({ text: 'မင်္ဂလာပါ' }).catch(() => ({
-      audioBuffer: Buffer.alloc(128),
-      source: 'guaranteed_speech_guard' as const,
-      voiceName: 'my-MM-NilarNeural',
-      contentType: 'audio/mpeg',
-    }));
     res.setHeader('Access-Control-Allow-Origin', '*');
     return res.status(200).json({
       success: true,
@@ -137,7 +124,7 @@ export default async function handler(req: any, res: any) {
       voiceName: 'my-MM-NilarNeural',
       gender: 'female',
       mimeType: 'audio/mpeg',
-      audioBase64: `data:audio/mpeg;base64,${fallback.audioBuffer.toString('base64')}`,
+      audioBase64: '',
     });
   }
 }
