@@ -5,7 +5,9 @@ export async function POST(req: Request): Promise<Response> {
     const body = await req.json().catch(() => ({}));
     const {
       text = 'မင်္ဂလာပါ',
+      sampleText,
       gender = 'female',
+      voiceGender,
       voiceName,
       voiceModel,
       voiceId,
@@ -14,9 +16,12 @@ export async function POST(req: Request): Promise<Response> {
       basePitchHz,
     } = body || {};
 
+    const cleanText = String(text || sampleText || 'မင်္ဂလာပါ').trim();
+    const effectiveGender = gender || voiceGender || 'female';
+
     const result = await generateMultiEngineMyanmarTTS({
-      text: String(text || 'မင်္ဂလာပါ').trim(),
-      voiceGender: gender,
+      text: cleanText,
+      voiceGender: effectiveGender,
       voiceName: voiceName || voiceModel,
       voiceId,
       pitchOffset: Number(pitchOffset) || 0,
@@ -31,10 +36,9 @@ export async function POST(req: Request): Promise<Response> {
         success: true,
         source: result.source,
         voiceName: result.voiceName,
-        gender,
-        voiceId,
-        mimeType: 'audio/mpeg',
-        audioBase64: `data:audio/mpeg;base64,${base64}`,
+        gender: effectiveGender,
+        mimeType: result.contentType,
+        audioBase64: `data:${result.contentType};base64,${base64}`,
       }),
       {
         status: 200,
@@ -81,7 +85,9 @@ export default async function handler(req: any, res: any) {
   try {
     const {
       text = 'မင်္ဂလာပါ',
+      sampleText,
       gender = 'female',
+      voiceGender,
       voiceName,
       voiceModel,
       voiceId,
@@ -90,9 +96,12 @@ export default async function handler(req: any, res: any) {
       basePitchHz,
     } = req.body || req.query || {};
 
+    const cleanText = String(text || sampleText || 'မင်္ဂလာပါ').trim();
+    const effectiveGender = gender || voiceGender || 'female';
+
     const result = await generateMultiEngineMyanmarTTS({
-      text: String(text || 'မင်္ဂလာပါ').trim(),
-      voiceGender: gender,
+      text: cleanText,
+      voiceGender: effectiveGender,
       voiceName: voiceName || voiceModel,
       voiceId,
       pitchOffset: Number(pitchOffset) || 0,
@@ -109,13 +118,12 @@ export default async function handler(req: any, res: any) {
       success: true,
       source: result.source,
       voiceName: result.voiceName,
-      gender,
-      voiceId,
-      mimeType: 'audio/mpeg',
-      audioBase64: `data:audio/mpeg;base64,${base64}`,
+      gender: effectiveGender,
+      mimeType: result.contentType,
+      audioBase64: `data:${result.contentType};base64,${base64}`,
     });
   } catch (err: any) {
-    console.error('synthesize-burmese-tts safe fallback:', err);
+    console.error('synthesize-tts safe fallback:', err);
     const fallback = await generateMultiEngineMyanmarTTS({ text: 'မင်္ဂလာပါ' }).catch(() => ({
       audioBuffer: Buffer.alloc(128),
       source: 'guaranteed_speech_guard' as const,
@@ -133,4 +141,3 @@ export default async function handler(req: any, res: any) {
     });
   }
 }
-

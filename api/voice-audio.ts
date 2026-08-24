@@ -1,9 +1,9 @@
-import { generateMultiEngineMyanmarTTS } from './tts';
+import { generateMultiEngineMyanmarTTS } from './_ttsCore';
 import { BURMESE_VOICE_AVATARS } from '../src/data/burmeseVoices';
 
 export async function GET(req: Request): Promise<Response> {
   try {
-    const url = new URL(req.url);
+    const url = new URL(req.url || '/', 'http://localhost');
     const pathParts = url.pathname.split('/');
     const lastPart = pathParts[pathParts.length - 1];
     const pathVoiceId = (lastPart && lastPart !== 'voice-audio') ? lastPart : '';

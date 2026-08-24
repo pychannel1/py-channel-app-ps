@@ -1,4 +1,4 @@
-import { generateMultiEngineMyanmarTTS } from './tts';
+import { generateMultiEngineMyanmarTTS } from './_ttsCore';
 
 export async function POST(req: Request): Promise<Response> {
   try {
@@ -54,7 +54,7 @@ export async function POST(req: Request): Promise<Response> {
 
 export async function GET(req: Request): Promise<Response> {
   try {
-    const url = new URL(req.url);
+    const url = new URL(req.url || '/', 'http://localhost');
     const text = (url.searchParams.get('text') || url.searchParams.get('sampleText') || 'မင်္ဂလာပါ').trim();
     const gender = url.searchParams.get('gender') || 'female';
     const voiceName = url.searchParams.get('voiceName') || '';

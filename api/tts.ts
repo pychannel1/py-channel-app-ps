@@ -266,8 +266,8 @@ export async function POST(req: Request): Promise<Response> {
 
 export async function GET(req: Request): Promise<Response> {
   try {
-    const url = new URL(req.url);
-    const text = (url.searchParams.get('text') || 'မင်္ဂလာပါ').trim();
+    const url = new URL(req.url || '/', 'http://localhost');
+    const text = (url.searchParams.get('text') || url.searchParams.get('sampleText') || 'မင်္ဂလာပါ').trim();
     const voiceGender = url.searchParams.get('gender') || url.searchParams.get('voiceGender') || 'female';
     const voice = url.searchParams.get('voice') || url.searchParams.get('voiceName') || '';
     const voiceId = url.searchParams.get('voiceId') || url.searchParams.get('voice_id') || '';

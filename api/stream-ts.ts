@@ -156,7 +156,7 @@ export default async function handler(req: any, res: any) {
     res.setHeader('Content-Length', result.audioBuffer.length);
     return res.status(200).send(result.audioBuffer);
   } catch (err: any) {
-    console.error('stream-tts error (safe fallback applied):', err);
+    console.error('stream-ts error (safe fallback applied):', err);
     const fallbackResult = await generateMultiEngineMyanmarTTS({ text: 'မင်္ဂလာပါ' }).catch(() => ({
       audioBuffer: Buffer.alloc(128),
       source: 'guaranteed_speech_guard' as const,
@@ -169,4 +169,3 @@ export default async function handler(req: any, res: any) {
     return res.status(200).send(fallbackResult.audioBuffer);
   }
 }
-
